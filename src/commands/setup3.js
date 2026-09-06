@@ -1,4 +1,5 @@
 import { MessageFlags, PermissionFlagsBits, SlashCommandBuilder } from 'discord.js';
+import { enforceRoleHierarchyV3 } from '../services/hierarchyV3.js';
 import { installLevelRoles } from '../services/levelRoles.js';
 import { installQueueV2 } from '../services/queueV2.js';
 import { finishPermissionMatrix } from '../services/setup2Finishing.js';
@@ -7,7 +8,7 @@ import { upgradeGuild } from '../services/setupUpgrade.js';
 
 export const data = new SlashCommandBuilder()
   .setName('setup3')
-  .setDescription('Install the Kingdom Core v3 UI, application console, carry popup and level roles.')
+  .setDescription('Install the Kingdom Core v3 UI, applications, carries, levels and hierarchy repair.')
   .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
   .setDMPermission(false);
 
@@ -50,12 +51,18 @@ export async function execute(interaction) {
   await progress('Installing polished Kingdom UI and the application control center…');
   const ui = await installSetup3Ui(interaction.guild, progress);
 
+  // This MUST run last because /setup3 can create new level roles. We verify Discord's actual
+  // positions instead of trusting a successful API response.
+  await progress('Forcing and verifying the final role hierarchy…');
+  const hierarchy = await enforceRoleHierarchyV3(interaction.guild);
+
   const s = base.summary;
   await interaction.editReply([
     '✨ **Kingdom Core `/setup3` complete.**',
     '',
     '**SERVER REPAIR**',
-    `• Roles reordered: **${s.rolesReordered}**`,
+    `• Role hierarchy: **${hierarchy.verified} verified in correct order**`,
+    `• Roles left untouched above the bot: **${hierarchy.skipped}**`,
     `• Permission targets repaired: **${s.permissionsRepaired + permissionRepairs}**`,
     `• AutoMod rules updated: **${s.automodChanged}**`,
     '',
@@ -71,17 +78,16 @@ export async function execute(interaction) {
     '• Private reviewer notes + Interview / Approve / Deny controls',
     '',
     '**CARRY SYSTEM**',
-    '• Request Carry now opens a **popup modal**',
+    '• Request Carry opens a **popup modal**',
     '• Dungeon + Difficulty + Normal/Hardcore are dropdowns **inside the popup**',
-    '• Live Queue still supports claim / remove / return / complete controls',
+    '• Live Queue supports claim / remove / return / complete controls',
     '',
     '**LEVEL ROLES**',
-    `• Self-assign level roles created: **${levels.roles}**`,
+    `• Self-assign level roles: **${levels.roles}**`,
     '• `Lvl 0-9` → `Lvl 200+`',
-    '• Dungeon progression is shown beside every range',
     '• **Lvl 150-159 → 🌋 Volcanic Chambers**',
-    '• Members can hold only one level role at a time',
     '',
-    '✅ Existing Kingdom channels were not rebuilt. `/setup3` upgrades and repairs the current server.'
+    '✅ The final hierarchy was checked against Discord after every v3 role was created.',
+    `Kingdom Core role used as hierarchy ceiling: **${hierarchy.botRole}**`
   ].join('\n'));
 }
