@@ -8,6 +8,7 @@ import {
   Partials
 } from 'discord.js';
 import { execute as executeSetup } from './commands/setup.js';
+import { execute as executeSetup4 } from './commands/setup4.js';
 import { execute as executeMod } from './commands/mod.js';
 import { handleApplicationLinkButton, handleApplicationLinkModal } from './services/applicationLinks.js';
 import {
@@ -25,6 +26,7 @@ import {
 import { startExternalInfra } from './services/externalInfraV4.js';
 import { handleButton, handleModal, handleSelect } from './services/interactions.js';
 import { handleLevelReactionAdd, handleLevelReactionRemove } from './services/levelRoles.js';
+import { recordAuditLedgerEventV4, runPlatformAutomationV4 } from './services/platformV4Automation.js';
 import {
   handlePlatformV4CompleteButton,
   handlePlatformV4CompleteModal,
@@ -79,6 +81,7 @@ client.once(Events.ClientReady, (readyClient) => {
     runV4Maintenance(guild).catch(() => null);
     runPlatformV4CompleteMaintenance(guild).catch(() => null);
     runCommunityMaintenance(guild).catch(() => null);
+    runPlatformAutomationV4(guild).catch(() => null);
   }
 
   startPlatformApi(readyClient).catch((error) => console.error('Platform API startup error:', error));
@@ -90,6 +93,7 @@ client.once(Events.ClientReady, (readyClient) => {
       runV4Maintenance(guild).catch(() => null);
       runPlatformV4CompleteMaintenance(guild).catch(() => null);
       runCommunityMaintenance(guild).catch(() => null);
+      runPlatformAutomationV4(guild).catch(() => null);
     }
   }, 300_000);
   timer.unref?.();
@@ -109,6 +113,7 @@ client.on(Events.GuildAuditLogEntryCreate, async (entry, guild) => {
   try {
     await handleAuditLogEntry(entry, guild, client.user?.id);
     await handleV4AuditEvent(entry, guild, client.user?.id);
+    await recordAuditLedgerEventV4(entry, guild, client.user?.id);
   } catch (error) {
     console.error('Security event error:', error);
   }
@@ -143,6 +148,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
     if (interaction.isChatInputCommand()) {
       if (interaction.commandName === 'setup') {
         await executeSetup(interaction);
+        return;
+      }
+      if (interaction.commandName === 'setup4') {
+        await executeSetup4(interaction);
         return;
       }
       if (interaction.commandName === 'mod') {
