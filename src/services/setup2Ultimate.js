@@ -1,4 +1,4 @@
-import { ChannelType, EmbedBuilder, PermissionFlagsBits, WebhookClient } from 'discord.js';
+import { ChannelType, EmbedBuilder, PermissionFlagsBits } from 'discord.js';
 import { CARRIER_KEYS, ROLE_BLUEPRINT, STAFF_KEYS } from '../config/blueprint.js';
 import { applicationHubPayload, applicationReviewDeskPayload } from './applicationLinks.js';
 import { carryControlPanelPayload, carryPublicPanelPayload } from './carryTickets.js';
@@ -148,15 +148,10 @@ async function ensureWebhook(channel, state, key, name, guild) {
   state.setup.webhooks ??= {};
   const saved = state.setup.webhooks[key];
   if (saved?.id && saved?.token) {
-    const client = new WebhookClient({ id: saved.id, token: saved.token });
-    try {
-      const fetched = await client.fetch().catch(() => null);
-      if (fetched) {
-        state.setup.webhooks[key] = { ...saved, channelId: channel.id, name };
-        return false;
-      }
-    } finally {
-      client.destroy();
+    const fetched = await guild.client.fetchWebhook(saved.id, saved.token).catch(() => null);
+    if (fetched) {
+      state.setup.webhooks[key] = { ...saved, channelId: channel.id, name };
+      return false;
     }
   }
 
@@ -249,6 +244,8 @@ export async function installUltimateSetup2(guild, onProgress = async () => {}) 
 
   const carry = await pin(channel('carryBoard'), 'carry', carryPublicPanelPayload(state));
   if (carry.message) state.setup.panels.carryUltimate = carry.message.id;
+  const legacyQueue = await pin(channel('carryQueue'), 'liveQueue', carryPublicPanelPayload(state));
+  if (legacyQueue.message) state.setup.panels.liveQueue = legacyQueue.message.id;
   const carryOps = await pin(channel('carryControl'), 'carryControl', carryControlPanelPayload(state));
   if (carryOps.message) state.setup.panels.carryControl = carryOps.message.id;
 
@@ -258,7 +255,8 @@ export async function installUltimateSetup2(guild, onProgress = async () => {}) 
   await pin(channel('carrierApplications'), 'appCarrier', applicationHubPayload());
   await pin(channel('creatorApplications'), 'appCreator', applicationHubPayload());
   await pin(channel('applicationsReview'), 'appReviewGuide', applicationReviewDeskPayload());
-  await pin(channel('ticketOverview'), 'ticketControlV2', ticketControlPayload(state));
+  const tickets = await pin(channel('ticketOverview'), 'ticketOverview', ticketControlPayload(state));
+  if (tickets.message) state.setup.panels.ticketControlV2 = tickets.message.id;
 
   await onProgress('Rebuilding dedicated branded webhook streams…');
   summary.webhooksPrepared += Number(await ensureWebhook(channel('securityLog'), state, 'security', '🛡️ Kingdom Security', guild));
