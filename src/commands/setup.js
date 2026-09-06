@@ -6,6 +6,7 @@ import { installCommunityV4 } from '../services/communityV4.js';
 import { enforceSetup2Hierarchy } from '../services/hierarchySetup2.js';
 import { installLevelRoles } from '../services/levelRoles.js';
 import { installPlatformV4 } from '../services/platformV4.js';
+import { installPlatformV4Complete } from '../services/platformV4Complete.js';
 import { runV4Maintenance } from '../services/platformV4Runtime.js';
 import { installStatsAndVerification } from '../services/serverStatsVerification.js';
 import { finishPermissionMatrix } from '../services/setup2Finishing.js';
@@ -67,6 +68,7 @@ export async function execute(interaction) {
   await progress('Installing and repairing Kingdom Core platform systems…');
   const platform = await installPlatformV4(interaction.guild, progress);
   const community = await installCommunityV4(interaction.guild);
+  const complete = await installPlatformV4Complete(interaction.guild);
   await runV4Maintenance(interaction.guild);
 
   await progress('Consolidating categories and cleaning safe duplicates…');
@@ -109,6 +111,7 @@ export async function execute(interaction) {
     '• Live queue + carry control + mission state machine',
     '• Carrier profiles, trials, service time, reputation and commendations',
     `• Existing duplicate carry parties merged: **${carries.merged ?? 0}**`,
+    `• Carrier control panels repaired: **${carrier.panels ?? 0}**`,
     '',
     '**KINGDOM PLATFORM**',
     '• Member identity, XP, prestige, Houses and quests',
@@ -117,12 +120,13 @@ export async function execute(interaction) {
     '• Applications, support tickets, analytics and staff command centre',
     '• Security, digital twin, audit/repair and platform health',
     '• Website/API + realtime platform support',
+    `• Premium v4.2 control surfaces repaired: **${complete.panels ?? 0}**`,
     '',
     '**REPAIRS / INSTALLATION**',
     `• Base roles created/repaired: **${b.rolesCreated}/${b.rolesUpdated}**`,
     `• Permission targets repaired: **${(u.permissionsRepaired ?? 0) + permissionRepairs}**`,
     `• Premium panels updated: **${p.panelsUpdated ?? 0}**`,
-    `• Platform channels added only where missing: **${platform.summary.channelsCreated + community.channelsCreated}**`,
+    `• Platform channels added only where missing: **${platform.summary.channelsCreated + community.channelsCreated + (complete.created ?? 0)}**`,
     `• Level roles installed: **${levels.roles}**`,
     `• Verification stats mode: **${stats.snapshot.exact ? 'exact' : 'cache-based'}**`,
     `• Final hierarchy verified: **${hierarchy.verified} roles**`,
