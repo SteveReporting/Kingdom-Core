@@ -10,6 +10,7 @@ import {
 import { execute as executeSetup } from './commands/setup.js';
 import { execute as executeSetup2 } from './commands/setup2.js';
 import { execute as executeSetup3 } from './commands/setup3.js';
+import { execute as executeSetup4 } from './commands/setup4.js';
 import { execute as executeMod } from './commands/mod.js';
 import { handleApplicationLinkButton, handleApplicationLinkModal } from './services/applicationLinks.js';
 import {
@@ -20,8 +21,18 @@ import {
 import { handlePartyButton, handlePartyModal, handlePartySelect } from './services/carryPartiesV3.js';
 import { handleButton, handleModal, handleSelect } from './services/interactions.js';
 import { handleLevelReactionAdd, handleLevelReactionRemove } from './services/levelRoles.js';
+import {
+  handleV4Button,
+  handleV4CommendButton,
+  handleV4DecisionButton,
+  handleV4Modal,
+  handleV4Select
+} from './services/platformV4Interactions.js';
+import { startPlatformApi } from './services/platformApiV4.js';
+import { runV4Maintenance, trackPlatformEvent } from './services/platformV4Runtime.js';
 import { handleQueueButton, handleQueueSelect } from './services/queueV2.js';
 import { handleAuditLogEntry, handleMessageSpam } from './services/security.js';
+import { handleV4AuditEvent } from './services/securityV4.js';
 import { updateServerStats } from './services/serverStatsVerification.js';
 import { handleTicketControlButton, handleTicketControlSelect } from './services/ticketControlV2.js';
 
@@ -55,11 +66,15 @@ client.once(Events.ClientReady, (readyClient) => {
 
   for (const guild of readyClient.guilds.cache.values()) {
     updateServerStats(guild).catch(() => null);
+    runV4Maintenance(guild).catch(() => null);
   }
+
+  startPlatformApi(readyClient).catch((error) => console.error('Platform API startup error:', error));
 
   const timer = setInterval(() => {
     for (const guild of readyClient.guilds.cache.values()) {
       updateServerStats(guild).catch(() => null);
+      runV4Maintenance(guild).catch(() => null);
     }
   }, 300_000);
   timer.unref?.();
@@ -67,15 +82,18 @@ client.once(Events.ClientReady, (readyClient) => {
 
 client.on(Events.GuildMemberAdd, async (member) => {
   await updateServerStats(member.guild).catch(() => null);
+  await trackPlatformEvent(member.guild.id, 'member.joined', { userId: member.id, accountCreatedAt: member.user.createdAt.toISOString() }).catch(() => null);
 });
 
 client.on(Events.GuildMemberRemove, async (member) => {
   await updateServerStats(member.guild).catch(() => null);
+  await trackPlatformEvent(member.guild.id, 'member.left', { userId: member.id }).catch(() => null);
 });
 
 client.on(Events.GuildAuditLogEntryCreate, async (entry, guild) => {
   try {
     await handleAuditLogEntry(entry, guild, client.user?.id);
+    await handleV4AuditEvent(entry, guild, client.user?.id);
   } catch (error) {
     console.error('Security event error:', error);
   }
@@ -120,6 +138,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
         await executeSetup3(interaction);
         return;
       }
+      if (interaction.commandName === 'setup4') {
+        await executeSetup4(interaction);
+        return;
+      }
       if (interaction.commandName === 'mod') {
         await executeMod(interaction);
         return;
@@ -127,6 +149,14 @@ client.on(Events.InteractionCreate, async (interaction) => {
     }
 
     if (interaction.isButton()) {
+      if (interaction.customId.startsWith('kc4:')) {
+        let handled = await handleV4DecisionButton(interaction);
+        if (handled !== false) return;
+        handled = await handleV4CommendButton(interaction);
+        if (handled !== false) return;
+        handled = await handleV4Button(interaction);
+        if (handled !== false) return;
+      }
       if (interaction.customId.startsWith('kc3:party:') || interaction.customId === 'kc2:carry:open' || interaction.customId === 'kc:carry:join') {
         const handled = await handlePartyButton(interaction);
         if (handled !== false) return;
@@ -152,6 +182,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
     }
 
     if (interaction.isStringSelectMenu()) {
+      if (interaction.customId.startsWith('kc4:')) {
+        const handled = await handleV4Select(interaction);
+        if (handled !== false) return;
+      }
       if (interaction.customId.startsWith('kc3:party:')) {
         const handled = await handlePartySelect(interaction);
         if (handled !== false) return;
@@ -173,6 +207,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
     }
 
     if (interaction.isModalSubmit()) {
+      if (interaction.customId.startsWith('kc4:')) {
+        const handled = await handleV4Modal(interaction);
+        if (handled !== false) return;
+      }
       if (interaction.customId.startsWith('kc3:party:')) {
         const handled = await handlePartyModal(interaction);
         if (handled !== false) return;
