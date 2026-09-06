@@ -1,6 +1,5 @@
 import { MessageFlags, PermissionFlagsBits, SlashCommandBuilder } from 'discord.js';
 import { installCarrierDepartmentV3 } from '../services/carrierDepartmentV3.js';
-import { compactGuildStructure, seedCompactCategoryAliases } from '../services/compactGuild.js';
 import { installCarryPartiesV3 } from '../services/carryPartiesV3.js';
 import { installCommunityV4 } from '../services/communityV4.js';
 import { enforceSetup2Hierarchy } from '../services/hierarchySetup2.js';
@@ -46,13 +45,8 @@ export async function execute(interaction) {
     await interaction.editReply(`👑 **Kingdom Core • Unified Setup**\n${message}`).catch(() => null);
   };
 
-  await progress('Scanning the existing server and repairing the base structure…');
+  await progress('Restoring and repairing the original Kingdom category layout…');
   const base = await setupGuild(interaction.guild, progress);
-
-  // Reuse the existing public/private areas for later generations instead of
-  // creating a new category for every subsystem.
-  await progress('Mapping existing areas into the consolidated Kingdom structure…');
-  await seedCompactCategoryAliases(interaction.guild);
 
   await progress('Repairing permissions, tickets, applications and security…');
   const upgraded = await upgradeGuild(interaction.guild, progress);
@@ -72,8 +66,9 @@ export async function execute(interaction) {
   await runV4Maintenance(interaction.guild);
   await runPlatformV4CompleteMaintenance(interaction.guild);
 
-  await progress('Consolidating categories and cleaning safe duplicates…');
-  const compact = await compactGuildStructure(interaction.guild, progress);
+  // Category consolidation is intentionally disabled. The bot restores/repairs
+  // the original category structure and leaves final manual ordering to staff.
+  await progress('Leaving category ordering untouched for manual organisation…');
 
   // Must run last so every role created by every generation is in final order.
   await progress('Verifying the final role hierarchy…');
@@ -82,30 +77,15 @@ export async function execute(interaction) {
   const b = base.summary;
   const u = upgraded.summary;
   const p = premium.summary;
-  const c = compact.summary;
 
   await interaction.editReply([
     '✨ **KINGDOM CORE • `/setup` COMPLETE**',
     '',
     '**ONE SETUP COMMAND**',
-    '• `/setup` now installs, upgrades and repairs every Kingdom Core generation.',
-    '• Existing roles, channels, panels and data are reused wherever possible.',
-    '• `/setup2`, `/setup3` and `/setup4` are retired.',
-    '',
-    '**COMPACT SERVER STRUCTURE**',
-    '• START HERE',
-    '• COMMUNITY',
-    '• CARRIES',
-    '• MARKET & TREASURY',
-    '• SUPPORT & APPLICATIONS',
-    '• KNIGHTS',
-    '• STAFF HQ',
-    `• Channels moved into the consolidated layout: **${c.channelsMoved}**`,
-    `• Obsolete/duplicate categories removed: **${c.categoriesRemoved}**`,
-    `• Safe empty duplicate channels removed: **${c.duplicateChannelsRemoved}**`,
-    c.populatedDuplicatesSkipped
-      ? `• Populated duplicates preserved to avoid data loss: **${c.populatedDuplicatesSkipped}**`
-      : '• No populated duplicate channels required manual review.',
+    '• `/setup` installs, upgrades and repairs every Kingdom Core generation.',
+    '• `/setup2`, `/setup3` and `/setup4` remain retired.',
+    '• Automatic category consolidation/reordering is disabled.',
+    '• The original Kingdom categories are restored/reused; staff can order them manually.',
     '',
     '**CARRY + KNIGHT OPERATIONS**',
     '• Private carry tickets + grouped parties + ready checks',
@@ -125,6 +105,7 @@ export async function execute(interaction) {
     '',
     '**REPAIRS / INSTALLATION**',
     `• Base roles created/repaired: **${b.rolesCreated}/${b.rolesUpdated}**`,
+    `• Base categories restored/created: **${b.categoriesCreated}**`,
     `• Permission targets repaired: **${(u.permissionsRepaired ?? 0) + permissionRepairs}**`,
     `• Premium panels updated: **${p.panelsUpdated ?? 0}**`,
     `• Platform channels added only where missing: **${platform.summary.channelsCreated + community.channelsCreated + (complete.created ?? 0)}**`,
@@ -132,6 +113,6 @@ export async function execute(interaction) {
     `• Verification stats mode: **${stats.snapshot.exact ? 'exact' : 'cache-based'}**`,
     `• Final hierarchy verified: **${hierarchy.verified} roles**`,
     '',
-    '✅ Running `/setup` again is safe. It repairs and migrates the existing Kingdom instead of intentionally wiping it.'
+    '✅ `/setup` will no longer merge categories, delete categories, or reorganise the server into the compact layout.'
   ].join('\n'));
 }
