@@ -46,8 +46,9 @@ function allowVisible(role, { send = true, voice = false } = {}) {
   return { id: role.id, allow, deny };
 }
 
-function privateMatrix(guild, roles, allowedKeys, { send = true, voice = false } = {}) {
+function privateMatrix(guild, roles, allowedKeys, { send = true, voice = false, staffCanSend = false } = {}) {
   const allowed = new Set(allowedKeys);
+  const staff = new Set(STAFF_KEYS);
   const rows = [{
     id: guild.roles.everyone.id,
     allow: [PermissionFlagsBits.ReadMessageHistory],
@@ -62,7 +63,14 @@ function privateMatrix(guild, roles, allowedKeys, { send = true, voice = false }
   for (const key of ALL_ROLE_KEYS) {
     const role = roles[key];
     if (!role) continue;
-    rows.push(allowed.has(key) ? allowVisible(role, { send, voice }) : denyHidden(role));
+    if (!allowed.has(key)) {
+      rows.push(denyHidden(role));
+      continue;
+    }
+    rows.push(allowVisible(role, {
+      send: send || (staffCanSend && staff.has(key)),
+      voice
+    }));
   }
   return rows;
 }
@@ -130,7 +138,11 @@ export async function finishPermissionMatrix(guild) {
     if (definition.accessFor?.length) {
       const allowed = [...STAFF_KEYS, ...definition.accessFor];
       await channel.permissionOverwrites.set(
-        privateMatrix(guild, roles, allowed, { send: !definition.readOnly, voice: isVoice }),
+        privateMatrix(guild, roles, allowed, {
+          send: !definition.readOnly,
+          voice: isVoice,
+          staffCanSend: true
+        }),
         'Kingdom Core /setup2 explicit House/private X permissions'
       ).catch(() => null);
       repaired++;
@@ -140,7 +152,11 @@ export async function finishPermissionMatrix(guild) {
     const privateAllowed = categoryAllowedKeys(definition.category);
     if (privateAllowed) {
       await channel.permissionOverwrites.set(
-        privateMatrix(guild, roles, privateAllowed, { send: !definition.readOnly, voice: isVoice }),
+        privateMatrix(guild, roles, privateAllowed, {
+          send: !definition.readOnly,
+          voice: isVoice,
+          staffCanSend: definition.category === 'carrier'
+        }),
         'Kingdom Core /setup2 explicit private channel X permissions'
       ).catch(() => null);
       repaired++;
