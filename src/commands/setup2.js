@@ -1,4 +1,6 @@
 import { MessageFlags, PermissionFlagsBits, SlashCommandBuilder } from 'discord.js';
+import { installQueueV2 } from '../services/queueV2.js';
+import { finishPermissionMatrix } from '../services/setup2Finishing.js';
 import { upgradeGuild } from '../services/setupUpgrade.js';
 
 export const data = new SlashCommandBuilder()
@@ -26,25 +28,39 @@ export async function execute(interaction) {
 
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
   let lastProgress = 0;
-  const result = await upgradeGuild(interaction.guild, async (message) => {
+  const progress = async (message) => {
     const now = Date.now();
-    if (now - lastProgress > 900) {
+    if (now - lastProgress > 700) {
       lastProgress = now;
       await interaction.editReply(`🛡️ **Kingdom Core Upgrade**\n${message}`).catch(() => null);
     }
-  });
+  };
+
+  const result = await upgradeGuild(interaction.guild, progress);
+
+  await progress('Finishing explicit red-X permission matrices…');
+  const finalPermissionRepairs = await finishPermissionMatrix(interaction.guild);
+
+  await progress('Installing the interactive live carry mission console…');
+  const liveQueueUpgraded = await installQueueV2(interaction.guild);
 
   const s = result.summary;
   await interaction.editReply([
-    '✨ **Kingdom Core v2 upgrade applied.**',
+    '✨ **Kingdom Core `/setup2` upgrade applied.**',
     '',
     `Roles reordered: **${s.rolesReordered}**`,
-    `Permission targets repaired: **${s.permissionsRepaired}**`,
+    `Permission targets repaired: **${s.permissionsRepaired + finalPermissionRepairs}**`,
     `Upgrade channels created: **${s.channelsCreated}**`,
     `Panels upgraded: **${s.panelsUpgraded}**`,
+    `Live carry console: **${liveQueueUpgraded ? 'UPGRADED' : 'UNCHANGED'}**`,
     `Branded webhooks prepared: **${s.webhooksPrepared}**`,
     `AutoMod rules created/updated: **${s.automodChanged}**`,
     '',
-    'No original Kingdom categories or channels were recreated. `/setup2` only repairs and upgrades the requested systems.'
+    '✅ Role hierarchy fixed',
+    '✅ Explicit X/✓ channel permission matrices applied while keeping Read Message History enabled',
+    '✅ Applications, ticket desk, security center and webhook UI upgraded',
+    '✅ Live queue now supports Request Carry, Leave Queue, Claim Next, carrier request controls, removal and completion',
+    '',
+    'No original Kingdom categories or channels were recreated. `/setup2` only repairs and upgrades these systems.'
   ].join('\n'));
 }
