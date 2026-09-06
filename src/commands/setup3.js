@@ -1,7 +1,7 @@
 import { MessageFlags, PermissionFlagsBits, SlashCommandBuilder } from 'discord.js';
 import { installCarrierDepartmentV3 } from '../services/carrierDepartmentV3.js';
 import { installCarryPartiesV3 } from '../services/carryPartiesV3.js';
-import { enforceRoleHierarchySetup2 } from '../services/hierarchySetup2.js';
+import { enforceSetup2Hierarchy } from '../services/hierarchySetup2.js';
 import { installStatsAndVerification } from '../services/serverStatsVerification.js';
 
 export const data = new SlashCommandBuilder()
@@ -38,7 +38,7 @@ export async function execute(interaction) {
   const carrier = await installCarrierDepartmentV3(interaction.guild);
 
   await progress('Re-verifying the Kingdom role hierarchy after the addon…');
-  const hierarchy = await enforceRoleHierarchySetup2(interaction.guild);
+  const hierarchy = await enforceSetup2Hierarchy(interaction.guild);
 
   await interaction.editReply([
     '✨ **Kingdom Core `/setup3` complete.**',
