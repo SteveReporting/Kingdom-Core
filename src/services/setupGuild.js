@@ -218,9 +218,14 @@ export async function setupGuild(guild, onProgress = async () => {}) {
   }
 
   const categories = {};
-  await onProgress('Raising the Kingdom categories…');
+  await onProgress('Reusing and repairing Kingdom categories…');
   for (const definition of CATEGORY_BLUEPRINT) {
-    let category = firstChannelByName(guild, definition.name, ChannelType.GuildCategory);
+    // Prefer the stored category ID. After the first unified migration several
+    // legacy keys intentionally point to the same compact category.
+    let category = guild.channels.cache.get(state.setup?.categories?.[definition.key]);
+    if (!category || category.type !== ChannelType.GuildCategory) {
+      category = firstChannelByName(guild, definition.name, ChannelType.GuildCategory);
+    }
     const overwrites = definition.privateFor ? privateCategoryOverwrites(guild, roles, definition.privateFor) : undefined;
     if (!category) {
       category = await guild.channels.create({
@@ -243,7 +248,10 @@ export async function setupGuild(guild, onProgress = async () => {}) {
     const resolvedType = definition.type === 'announcement' && !guild.features.includes('COMMUNITY')
       ? ChannelType.GuildText
       : targetType;
-    let channel = firstChannelByName(guild, definition.name, resolvedType);
+    let channel = guild.channels.cache.get(state.setup?.channels?.[definition.key]);
+    if (!channel || channel.type !== resolvedType) {
+      channel = firstChannelByName(guild, definition.name, resolvedType);
+    }
     const category = categories[definition.category];
     const categoryPrivate = CATEGORY_BLUEPRINT.find((c) => c.key === definition.category)?.privateFor;
     const overwrites = definition.accessFor?.length
