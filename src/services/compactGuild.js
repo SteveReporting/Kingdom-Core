@@ -96,7 +96,9 @@ async function ensureCompactCategory(guild, state, group) {
     .map((id) => guild.channels.cache.get(id))
     .filter((channel) => channel?.type === ChannelType.GuildCategory);
 
-  let target = preferred?.type === ChannelType.GuildCategory ? preferred : byName ?? candidates[0] ?? null;
+  // On later /setup runs, preserve the already-consolidated category instead of
+  // replacing its ID with a temporary legacy category recreated during repair.
+  let target = byName ?? (preferred?.type === ChannelType.GuildCategory ? preferred : candidates[0] ?? null);
   let created = false;
 
   if (!target) {
