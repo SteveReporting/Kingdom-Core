@@ -19,6 +19,12 @@ import {
   handleCarryTicketSelect
 } from './services/carryTickets.js';
 import { handlePartyButton, handlePartyModal, handlePartySelect } from './services/carryPartiesV3.js';
+import {
+  handleCommunityV4Button,
+  handleCommunityV4Modal,
+  handleCommunityV4Select,
+  runCommunityMaintenance
+} from './services/communityV4.js';
 import { startExternalInfra } from './services/externalInfraV4.js';
 import { handleButton, handleModal, handleSelect } from './services/interactions.js';
 import { handleLevelReactionAdd, handleLevelReactionRemove } from './services/levelRoles.js';
@@ -68,6 +74,7 @@ client.once(Events.ClientReady, (readyClient) => {
   for (const guild of readyClient.guilds.cache.values()) {
     updateServerStats(guild).catch(() => null);
     runV4Maintenance(guild).catch(() => null);
+    runCommunityMaintenance(guild).catch(() => null);
   }
 
   startPlatformApi(readyClient).catch((error) => console.error('Platform API startup error:', error));
@@ -77,6 +84,7 @@ client.once(Events.ClientReady, (readyClient) => {
     for (const guild of readyClient.guilds.cache.values()) {
       updateServerStats(guild).catch(() => null);
       runV4Maintenance(guild).catch(() => null);
+      runCommunityMaintenance(guild).catch(() => null);
     }
   }, 300_000);
   timer.unref?.();
@@ -151,6 +159,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
     }
 
     if (interaction.isButton()) {
+      if (interaction.customId.startsWith('kc4c:')) {
+        const handled = await handleCommunityV4Button(interaction);
+        if (handled !== false) return;
+      }
       if (interaction.customId.startsWith('kc4:')) {
         let handled = await handleV4DecisionButton(interaction);
         if (handled !== false) return;
@@ -184,6 +196,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
     }
 
     if (interaction.isStringSelectMenu()) {
+      if (interaction.customId.startsWith('kc4c:')) {
+        const handled = await handleCommunityV4Select(interaction);
+        if (handled !== false) return;
+      }
       if (interaction.customId.startsWith('kc4:')) {
         const handled = await handleV4Select(interaction);
         if (handled !== false) return;
@@ -209,6 +225,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
     }
 
     if (interaction.isModalSubmit()) {
+      if (interaction.customId.startsWith('kc4c:')) {
+        const handled = await handleCommunityV4Modal(interaction);
+        if (handled !== false) return;
+      }
       if (interaction.customId.startsWith('kc4:')) {
         const handled = await handleV4Modal(interaction);
         if (handled !== false) return;
