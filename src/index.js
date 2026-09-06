@@ -10,6 +10,7 @@ import { execute as executeSetup } from './commands/setup.js';
 import { execute as executeSetup2 } from './commands/setup2.js';
 import { execute as executeMod } from './commands/mod.js';
 import { handleButton, handleModal, handleSelect } from './services/interactions.js';
+import { handleQueueButton, handleQueueSelect } from './services/queueV2.js';
 import { handleAuditLogEntry, handleMessageSpam } from './services/security.js';
 
 const token = process.env.TOKEN;
@@ -66,14 +67,25 @@ client.on(Events.InteractionCreate, async (interaction) => {
         return;
       }
     }
+
     if (interaction.isButton()) {
+      if (interaction.customId.startsWith('kc:carry:') || interaction.customId.startsWith('kc:qv2:')) {
+        await handleQueueButton(interaction);
+        return;
+      }
       await handleButton(interaction);
       return;
     }
+
     if (interaction.isStringSelectMenu()) {
+      if (interaction.customId.startsWith('kc:carry:') || interaction.customId.startsWith('kc:qv2:')) {
+        await handleQueueSelect(interaction);
+        return;
+      }
       await handleSelect(interaction);
       return;
     }
+
     if (interaction.isModalSubmit()) {
       await handleModal(interaction);
     }
