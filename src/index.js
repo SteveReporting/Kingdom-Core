@@ -11,6 +11,11 @@ import { execute as executeSetup } from './commands/setup.js';
 import { execute as executeSetup2 } from './commands/setup2.js';
 import { execute as executeSetup3 } from './commands/setup3.js';
 import { execute as executeMod } from './commands/mod.js';
+import {
+  handleApplicationV3Button,
+  handleApplicationV3Modal,
+  handleApplicationV3Select
+} from './services/applicationV3.js';
 import { openCarryModalV3 } from './services/carryModalV3.js';
 import { handleButton, handleModal, handleSelect } from './services/interactions.js';
 import { handleLevelReactionAdd, handleLevelReactionRemove } from './services/levelRoles.js';
@@ -96,9 +101,13 @@ client.on(Events.InteractionCreate, async (interaction) => {
     }
 
     if (interaction.isButton()) {
-      // Old live-queue Request Carry buttons are deliberately intercepted so they open the v3 modal too.
-      if (interaction.customId === 'kc:carry:join') {
+      // Any old Request Carry button in the live queue is upgraded in place to the v3 popup flow.
+      if (interaction.customId === 'kc:carry:join' || interaction.customId === 'kc3:carry:open') {
         await openCarryModalV3(interaction);
+        return;
+      }
+      if (interaction.customId.startsWith('kc3:app:') || interaction.customId.startsWith('kc3:apps:')) {
+        await handleApplicationV3Button(interaction);
         return;
       }
       if (interaction.customId.startsWith('kc3:')) {
@@ -114,6 +123,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
     }
 
     if (interaction.isStringSelectMenu()) {
+      if (interaction.customId.startsWith('kc3:apps:')) {
+        await handleApplicationV3Select(interaction);
+        return;
+      }
       if (interaction.customId.startsWith('kc3:')) {
         await handleSetup3Select(interaction);
         return;
@@ -127,6 +140,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
     }
 
     if (interaction.isModalSubmit()) {
+      if (interaction.customId.startsWith('kc3:app:') || interaction.customId.startsWith('kc3:apps:')) {
+        await handleApplicationV3Modal(interaction);
+        return;
+      }
       if (interaction.customId.startsWith('kc3:')) {
         await handleSetup3Modal(interaction);
         return;
