@@ -19,6 +19,7 @@ import {
   handleCarryTicketSelect
 } from './services/carryTickets.js';
 import { handlePartyButton, handlePartyModal, handlePartySelect } from './services/carryPartiesV3.js';
+import { startExternalInfra } from './services/externalInfraV4.js';
 import { handleButton, handleModal, handleSelect } from './services/interactions.js';
 import { handleLevelReactionAdd, handleLevelReactionRemove } from './services/levelRoles.js';
 import {
@@ -70,6 +71,7 @@ client.once(Events.ClientReady, (readyClient) => {
   }
 
   startPlatformApi(readyClient).catch((error) => console.error('Platform API startup error:', error));
+  startExternalInfra(readyClient).catch((error) => console.error('External infrastructure startup error:', error));
 
   const timer = setInterval(() => {
     for (const guild of readyClient.guilds.cache.values()) {
