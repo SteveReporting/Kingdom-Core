@@ -2,9 +2,11 @@
 
 **The system behind the realm.**
 
-Kingdom Core is the all-in-one Discord infrastructure bot for **Kingdom Carries**, a Dungeon Quest community. The bot is intentionally centered around one administrative command: **`/setup`**.
+Kingdom Core is the all-in-one Discord operating platform for **Kingdom Carries**, a Dungeon Quest community.
 
-Running `/setup` builds or repairs the Kingdom Carries Discord structure without deleting existing server content.
+The bot intentionally uses one administrative setup command: **`/setup`**.
+
+Running `/setup` installs, migrates or repairs the complete Kingdom Core platform. It is designed for existing servers as well as fresh installs: existing roles, channels, panels and stored state are reused wherever possible rather than intentionally wiping the guild.
 
 ## Application
 
@@ -13,60 +15,155 @@ Running `/setup` builds or repairs the Kingdom Carries Discord structure without
 - **Invite with Administrator:**
   `https://discord.com/oauth2/authorize?client_id=1546171480952283166&permissions=8&scope=bot%20applications.commands`
 
-> Administrator is deliberately requested because `/setup` creates roles, categories, channels and permission overwrites. The command itself is restricted to server administrators.
+> Administrator is requested because `/setup` manages roles, categories, channels, permission overwrites, webhooks and server security. The command itself is restricted to server administrators.
 
-## What `/setup` creates
+## Commands
 
-### Leadership & staff
-- 👑 The Crown
-- ♛ Regent
-- ⚜️ Royal Council
-- ⚔️ Lord Commander
-- 📜 Chancellor
-- 🗝️ Steward
-- 🛡️ Royal Guard
-- 🏰 Castle Guard
-- 🔭 Watchman
-- ✒️ Royal Scribe
-- 📯 Herald
-- 🔮 Court Mage
+Kingdom Core deliberately keeps the slash-command surface small:
 
-### Carrier hierarchy
-- 🏆 Royal Champion
-- 🗡️ Knight Captain
-- ⚔️ Royal Knight
-- ⚔️ Knight
-- 🛡️ Squire • Carrier Trial
+- `/setup` — install, migrate and repair the complete platform
+- `/mod` — moderation controls
 
-### Member progression
-Traveller → Citizen → Noble → Baron → Count → Duke → Prince → Champion of the Realm
+The old `/setup2`, `/setup3` and `/setup4` commands have been retired. Their systems are now included automatically in `/setup`.
 
-### Houses
-- 🐉 House Drakon
-- 🦁 House Leonis
-- 🦅 House Aether
-- 🐺 House Fenrir
+## Compact server structure
 
-### Server areas
-Arrival, The Kingdom, Carries, Progression, Market District, Community, Support, private Knights' Quarters, and private Royal Council.
+`/setup` consolidates Kingdom-managed areas into seven main categories instead of creating a separate category for every subsystem:
 
-### Interactive systems included now
-- House selection
-- Toggleable carry/event/market pings
-- Free carry queue
-- Carrier claim + completion flow
-- Live carry queue message
-- Completed carry feed
-- Private support petitions/tickets
-- Starter quest board
-- Rules + welcome panels
-- JSON persistence — **no paid database required**
+1. **👑 START HERE** — welcome, rules, verification and server information
+2. **🏰 COMMUNITY** — chat, progression, Houses, events and public Kingdom systems
+3. **⚔️ CARRIES** — carry desk, live queue, parties and private carry missions
+4. **💰 MARKET & TREASURY** — marketplace, treasury, trading and economy systems
+5. **🕯️ SUPPORT & APPLICATIONS** — support, applications and private petitions
+6. **🛡️ KNIGHTS** — carrier operations, trials, training and service controls
+7. **👑 STAFF HQ** — staff operations, security, analytics and platform control
+
+Existing Kingdom Core channels are moved into the consolidated layout while retaining their channel-level permission overwrites. Obsolete empty Kingdom categories are removed. Safe empty duplicate managed channels are removed automatically; populated duplicates are preserved rather than deleting messages or staff history.
+
+## Systems installed by `/setup`
+
+### Roles and progression
+
+- Crown and leadership hierarchy
+- Staff and moderation hierarchy
+- Royal Vanguard / Knight carrier hierarchy
+- Trial carrier role
+- Member progression roles
+- Dungeon Quest level roles
+- Houses
+- Notification roles
+
+### Carry operations
+
+- Free carry request system
+- Private carry tickets
+- Grouped compatible requests
+- Live queue
+- Carrier claiming and assignment
+- Ready checks
+- Carry state machine
+- Return-to-pool / recovery flow
+- Completion tracking
+- Demand and wait-time forecasting
+- Carrier workload, service time and coverage
+
+### Carrier / Knight systems
+
+- Carrier profiles
+- Trial progression
+- 5 successful supervised-run requirement
+- Service tracking
+- Reputation and commendations
+- Skill / coverage systems
+- Carrier document library and control surfaces
+
+### Member and Kingdom systems
+
+- Member identity records
+- Kingdom XP and progression
+- Prestige
+- Houses and House standings
+- Daily / weekly / Kingdom quests
+- Achievements and contribution tracking
+- Referrals
+- Mentor network
+- Verification and level intelligence
+
+### Community and events
+
+- Royal Calendar
+- Event creation and RSVP
+- Team building / tournament foundations
+- Notification routing
+- Royal Archives / knowledge tools
+- Community maintenance systems
+
+### Marketplace and treasury
+
+- Marketplace listings
+- Search and market intelligence
+- Watchlists
+- Treasury inventory
+- Treasury requests and approvals
+- Item lending / loan ledger
+- Economy audit history
+
+### Applications and support
+
+- Application hub
+- Staff / carrier / creator application workflows
+- Structured review metrics and scoring
+- Private support petitions
+- Ticket ownership
+- SLA / escalation tracking
+- Resolution summaries
+
+### Staff, analytics and security
+
+- Royal Control Plane
+- Carry operations dashboard
+- Application command centre
+- Ticket command centre
+- Analytics command centre
+- Security command centre
+- Audit ledger
+- Approved bot and webhook registry
+- Permission drift / digital twin
+- Emergency lockdown and repair systems
+- AutoMod and spam protection
+
+### Platform / website integration
+
+- Optional HTTP platform API
+- Live WebSocket updates
+- Public operational snapshot
+- Carry, marketplace, leaderboard and House data surfaces
+- Optional PostgreSQL and Redis adapters
+- Background maintenance / workflow engine
+- Runtime diagnostics and platform assurance
+
+## Idempotent migration behaviour
+
+`/setup` is safe to rerun as a repair/migration command. It will:
+
+- find and reuse existing Kingdom roles and channels
+- add missing systems
+- repair permission matrices
+- refresh pinned control panels
+- preserve existing Kingdom state in `data/<guild-id>.json`
+- merge compatible duplicate carry parties
+- consolidate Kingdom-managed categories
+- remove only safe empty duplicate channels automatically
+- preserve populated duplicates rather than deleting message history
+- verify the final role hierarchy at the end
+
+It does **not** intentionally wipe the server or delete arbitrary user-created content.
 
 ## Security model
 
-The bot account can have Discord Administrator so it has enough power to build the server, but `/setup` is restricted to server administrators. The setup process is **idempotent**: it creates missing pieces and repairs the foundation rather than deleting the server.
+The bot account can have Discord Administrator so it has enough authority to build and repair the platform, but `/setup` is restricted to server administrators.
 
-Kingdom Core does **not** contain `eval`, arbitrary code execution, remote shell functionality, or token logging.
+Kingdom Core does **not** contain `eval`, arbitrary remote code execution, remote shell functionality or token logging.
 
 ## Requirements
 
@@ -80,17 +177,15 @@ npm install
 cp .env.example .env
 ```
 
-Edit `.env` and add your bot token.
+Edit `.env` and add your bot token. For immediate guild-scoped command deployment, set `GUILD_ID` to the Kingdom Carries server ID.
 
-For fast testing, add your test server ID to `GUILD_ID`.
-
-## Register `/setup`
+## Register commands
 
 ```bash
 npm run deploy
 ```
 
-With `GUILD_ID` set, the command is registered to that guild for immediate testing. With it blank, the command is registered globally.
+With `GUILD_ID` set, `/setup` and `/mod` are registered to that guild immediately. With it blank, they are registered globally.
 
 ## Start
 
@@ -104,10 +199,21 @@ Then, as a server administrator, run:
 /setup
 ```
 
-## Free hosting
+## Updating an existing deployment
 
-The bot itself has no paid API or database dependency. It can run anywhere that keeps a Node.js process alive, including your existing Linux/VPS host. State is kept in `data/<guild-id>.json`.
+On the server running Kingdom Core:
 
-## Planned expansion
+```bash
+git pull
+npm install
+npm run check
+npm run deploy
+pm2 restart kingdom-core --update-env
+pm2 save
+```
 
-The foundation is structured for Kingdom XP, automated quests, achievements, Houses, campaigns, world bosses, carrier stats, marketplace, treasury and website/dashboard integration without turning the bot into a wall of slash commands.
+After the restart, run `/setup` once in Discord. The unified setup performs the migration and category consolidation.
+
+## Hosting
+
+Kingdom Core has no mandatory paid API or database dependency. It can run on an existing Linux/VPS host with JSON persistence, while PostgreSQL and Redis remain optional infrastructure upgrades.
