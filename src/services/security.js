@@ -84,7 +84,9 @@ export async function handleAuditLogEntry(entry, guild, clientUserId) {
   const state = await cachedState(guild.id);
   if (!state.setup?.completedAt) return;
 
-  if (HIGH_RISK_AUDIT_ACTIONS.has(entry.action) && allowAuditMirror(guild.id)) {
+  const selfAction = entry.executorId === clientUserId;
+
+  if (!selfAction && HIGH_RISK_AUDIT_ACTIONS.has(entry.action) && allowAuditMirror(guild.id)) {
     const auditMirrorId = state.setup?.channels?.auditMirror;
     const auditMirror = auditMirrorId ? guild.channels.cache.get(auditMirrorId) : null;
     if (auditMirror?.isTextBased()) {
@@ -105,7 +107,7 @@ export async function handleAuditLogEntry(entry, guild, clientUserId) {
     }
   }
 
-  if (entry.action === AuditLogEvent.WebhookCreate) {
+  if (!selfAction && entry.action === AuditLogEvent.WebhookCreate) {
     const trusted = await isTrustedBotAdder(guild, state, entry.executorId);
     if (!trusted) {
       await sendSecurityLog(guild, state, {
