@@ -19,3 +19,6 @@ jobs:
         run: npm install --no-audit --no-fund
       - name: Syntax check
         run: npm run check
+      - name: Import consolidated setup2 modules
+        run: |
+          node -e "Promise.all([import('./src/commands/setup2.js'),import('./src/services/setup2Ultimate.js'),import('./src/services/carryTickets.js'),import('./src/services/applicationLinks.js'),import('./src/services/ticketControlV2.js'),import('./src/services/hierarchySetup2.js'),import('./src/ui/premiumUi2.js')]).then(()=>console.log('setup2 module imports OK'))"
