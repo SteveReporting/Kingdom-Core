@@ -29,7 +29,7 @@ for (const [number, [name, file]] of Object.entries(APPROVED_V4_SYSTEMS)) {
 }
 
 const requiredImports = [
-  '../src/commands/setup4.js',
+  '../src/commands/setup.js',
   '../src/services/platformV4Complete.js',
   '../src/services/communityV4.js',
   '../src/services/securityV4.js',
