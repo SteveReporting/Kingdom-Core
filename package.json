@@ -1,0 +1,19 @@
+{
+  "name": "kingdom-core",
+  "version": "1.0.0",
+  "description": "All-in-one Discord infrastructure bot for Kingdom Carries.",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "deploy": "node src/deploy-commands.js",
+    "check": "node --check src/index.js && node --check src/deploy-commands.js && node --check src/commands/setup.js && node --check src/services/setupGuild.js && node --check src/services/interactions.js"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "discord.js": "14.27.0",
+    "dotenv": "16.6.1"
+  }
+}
