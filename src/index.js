@@ -8,7 +8,6 @@ import {
   Partials
 } from 'discord.js';
 import { execute as executeSetup } from './commands/setup.js';
-import { execute as executeSetup4 } from './commands/setup4.js';
 import { execute as executeMod } from './commands/mod.js';
 import { handleApplicationLinkButton, handleApplicationLinkModal } from './services/applicationLinks.js';
 import {
@@ -148,10 +147,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
     if (interaction.isChatInputCommand()) {
       if (interaction.commandName === 'setup') {
         await executeSetup(interaction);
-        return;
-      }
-      if (interaction.commandName === 'setup4') {
-        await executeSetup4(interaction);
         return;
       }
       if (interaction.commandName === 'mod') {
