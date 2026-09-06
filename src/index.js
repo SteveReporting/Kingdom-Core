@@ -9,6 +9,7 @@ import {
 } from 'discord.js';
 import { execute as executeSetup } from './commands/setup.js';
 import { execute as executeSetup2 } from './commands/setup2.js';
+import { execute as executeSetup3 } from './commands/setup3.js';
 import { execute as executeMod } from './commands/mod.js';
 import { handleApplicationLinkButton, handleApplicationLinkModal } from './services/applicationLinks.js';
 import {
@@ -16,10 +17,12 @@ import {
   handleCarryTicketModal,
   handleCarryTicketSelect
 } from './services/carryTickets.js';
+import { handlePartyButton, handlePartyModal, handlePartySelect } from './services/carryPartiesV3.js';
 import { handleButton, handleModal, handleSelect } from './services/interactions.js';
 import { handleLevelReactionAdd, handleLevelReactionRemove } from './services/levelRoles.js';
 import { handleQueueButton, handleQueueSelect } from './services/queueV2.js';
 import { handleAuditLogEntry, handleMessageSpam } from './services/security.js';
+import { updateServerStats } from './services/serverStatsVerification.js';
 import { handleTicketControlButton, handleTicketControlSelect } from './services/ticketControlV2.js';
 
 const token = process.env.TOKEN;
@@ -28,13 +31,18 @@ if (!token) {
   process.exit(1);
 }
 
+const intents = [
+  GatewayIntentBits.Guilds,
+  GatewayIntentBits.GuildModeration,
+  GatewayIntentBits.GuildMessages,
+  GatewayIntentBits.GuildMessageReactions
+];
+if (String(process.env.ENABLE_MEMBER_STATS_INTENT).toLowerCase() === 'true') {
+  intents.push(GatewayIntentBits.GuildMembers);
+}
+
 const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildModeration,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.GuildMessageReactions
-  ],
+  intents,
   partials: [Partials.Message, Partials.Channel, Partials.Reaction, Partials.User]
 });
 
@@ -44,6 +52,25 @@ client.once(Events.ClientReady, (readyClient) => {
     activities: [{ name: 'over the Kingdom', type: ActivityType.Watching }],
     status: 'online'
   });
+
+  for (const guild of readyClient.guilds.cache.values()) {
+    updateServerStats(guild).catch(() => null);
+  }
+
+  const timer = setInterval(() => {
+    for (const guild of readyClient.guilds.cache.values()) {
+      updateServerStats(guild).catch(() => null);
+    }
+  }, 300_000);
+  timer.unref?.();
+});
+
+client.on(Events.GuildMemberAdd, async (member) => {
+  await updateServerStats(member.guild).catch(() => null);
+});
+
+client.on(Events.GuildMemberRemove, async (member) => {
+  await updateServerStats(member.guild).catch(() => null);
 });
 
 client.on(Events.GuildAuditLogEntryCreate, async (entry, guild) => {
@@ -89,6 +116,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
         await executeSetup2(interaction);
         return;
       }
+      if (interaction.commandName === 'setup3') {
+        await executeSetup3(interaction);
+        return;
+      }
       if (interaction.commandName === 'mod') {
         await executeMod(interaction);
         return;
@@ -96,7 +127,11 @@ client.on(Events.InteractionCreate, async (interaction) => {
     }
 
     if (interaction.isButton()) {
-      if (interaction.customId === 'kc:carry:join' || interaction.customId.startsWith('kc2:carry:')) {
+      if (interaction.customId.startsWith('kc3:party:') || interaction.customId === 'kc2:carry:open' || interaction.customId === 'kc:carry:join') {
+        const handled = await handlePartyButton(interaction);
+        if (handled !== false) return;
+      }
+      if (interaction.customId.startsWith('kc2:carry:')) {
         const handled = await handleCarryTicketButton(interaction);
         if (handled !== false) return;
       }
@@ -117,6 +152,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
     }
 
     if (interaction.isStringSelectMenu()) {
+      if (interaction.customId.startsWith('kc3:party:')) {
+        const handled = await handlePartySelect(interaction);
+        if (handled !== false) return;
+      }
       if (interaction.customId.startsWith('kc2:carry:')) {
         const handled = await handleCarryTicketSelect(interaction);
         if (handled !== false) return;
@@ -134,6 +173,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
     }
 
     if (interaction.isModalSubmit()) {
+      if (interaction.customId.startsWith('kc3:party:')) {
+        const handled = await handlePartyModal(interaction);
+        if (handled !== false) return;
+      }
       if (interaction.customId.startsWith('kc2:carry:')) {
         const handled = await handleCarryTicketModal(interaction);
         if (handled !== false) return;
