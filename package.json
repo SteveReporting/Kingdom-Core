@@ -7,7 +7,7 @@
   "scripts": {
     "start": "node src/index.js",
     "deploy": "node src/deploy-commands.js",
-    "check": "node --check src/index.js && node --check src/deploy-commands.js && node --check src/commands/setup.js && node --check src/commands/setup2.js && node --check src/commands/setup3.js && node --check src/commands/mod.js && node --check src/services/setupGuild.js && node --check src/services/setupUpgrade.js && node --check src/services/setup2Finishing.js && node --check src/services/setup3Upgrade.js && node --check src/services/setup3Interactions.js && node --check src/services/carryModalV3.js && node --check src/services/levelRoles.js && node --check src/services/queueV2.js && node --check src/services/interactions.js && node --check src/services/security.js && node --check src/services/webhooks.js && node --check src/config/blueprint.js && node --check src/ui/embeds.js"
+    "check": "node --check src/index.js && node --check src/deploy-commands.js && node --check src/commands/setup.js && node --check src/commands/setup2.js && node --check src/commands/setup3.js && node --check src/commands/mod.js && node --check src/services/setupGuild.js && node --check src/services/setupUpgrade.js && node --check src/services/setup2Finishing.js && node --check src/services/setup3Upgrade.js && node --check src/services/setup3Interactions.js && node --check src/services/applicationV3.js && node --check src/services/carryModalV3.js && node --check src/services/levelRoles.js && node --check src/services/queueV2.js && node --check src/services/interactions.js && node --check src/services/security.js && node --check src/services/webhooks.js && node --check src/config/blueprint.js && node --check src/ui/embeds.js"
   },
   "engines": {
     "node": ">=20.0.0"
