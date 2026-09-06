@@ -68,7 +68,9 @@ export function notificationPanel() {
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId('kc:role:carryPing').setLabel('Carry Pings').setEmoji('⚔️').setStyle(ButtonStyle.Primary),
     new ButtonBuilder().setCustomId('kc:role:eventPing').setLabel('Event Pings').setEmoji('🎪').setStyle(ButtonStyle.Primary),
-    new ButtonBuilder().setCustomId('kc:role:marketPing').setLabel('Market Pings').setEmoji('🏪').setStyle(ButtonStyle.Primary)
+    new ButtonBuilder().setCustomId('kc:role:marketPing').setLabel('Market Pings').setEmoji('🏪').setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId('kc:role:giveawayPing').setLabel('Giveaways').setEmoji('🎁').setStyle(ButtonStyle.Success),
+    new ButtonBuilder().setCustomId('kc:role:updatePing').setLabel('Updates').setEmoji('📢').setStyle(ButtonStyle.Secondary)
   );
   return { embeds: [embed], components: [row] };
 }
@@ -97,7 +99,7 @@ export function carryPanel() {
 export function supportPanel() {
   const embed = baseEmbed()
     .setTitle('🕯️ Petition the Crown')
-    .setDescription('Need help with a carry, trade, report, staff matter, partnership, or something else? Open one private petition.');
+    .setDescription('Need help with a carry, trade, report, staff matter, partnership, appeal, or something else? Open one private petition.');
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId('kc:ticket:open').setLabel('Open Petition').setEmoji('📜').setStyle(ButtonStyle.Primary)
   );
