@@ -25,13 +25,8 @@ async function ensureWebhook(channel, state, key, name, guild) {
   state.setup.webhooks ??= {};
   const saved = state.setup.webhooks[key];
   if (saved?.id && saved?.token) {
-    const client = new WebhookClient({ id: saved.id, token: saved.token });
-    try {
-      await client.send({ content: '', allowedMentions: { parse: [] } }).catch(() => null);
-      return saved;
-    } finally {
-      client.destroy();
-    }
+    const fetched = await guild.client.fetchWebhook(saved.id, saved.token).catch(() => null);
+    if (fetched) return { ...saved, channelId: channel.id, name };
   }
 
   const hooks = await channel.fetchWebhooks().catch(() => null);
