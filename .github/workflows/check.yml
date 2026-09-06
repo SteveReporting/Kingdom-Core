@@ -22,3 +22,6 @@ jobs:
       - name: Import consolidated setup2 modules
         run: |
           node -e "Promise.all([import('./src/commands/setup2.js'),import('./src/services/setup2Ultimate.js'),import('./src/services/carryTickets.js'),import('./src/services/applicationLinks.js'),import('./src/services/ticketControlV2.js'),import('./src/services/hierarchySetup2.js'),import('./src/ui/premiumUi2.js')]).then(()=>console.log('setup2 module imports OK'))"
+      - name: Import setup3 addon modules
+        run: |
+          node -e "Promise.all([import('./src/commands/setup3.js'),import('./src/services/carryPartiesV3.js'),import('./src/services/carrierDepartmentV3.js'),import('./src/services/serverStatsVerification.js')]).then(()=>console.log('setup3 module imports OK'))"
