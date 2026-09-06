@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import { REST, Routes } from 'discord.js';
 import { data as setupCommand } from './commands/setup.js';
+import { data as setup2Command } from './commands/setup2.js';
 import { data as modCommand } from './commands/mod.js';
 
 const token = process.env.TOKEN;
@@ -12,7 +13,7 @@ if (!token) {
   process.exit(1);
 }
 
-const commands = [setupCommand.toJSON(), modCommand.toJSON()];
+const commands = [setupCommand.toJSON(), setup2Command.toJSON(), modCommand.toJSON()];
 const rest = new REST({ version: '10' }).setToken(token);
 
 try {
