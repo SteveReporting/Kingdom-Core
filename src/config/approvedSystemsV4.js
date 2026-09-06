@@ -83,8 +83,8 @@ export const APPROVED_V4_SYSTEMS = {
   105: ['Runtime Permission Tests', 'platformV4Complete.js'],
   106: ['Server Digital Twin', 'securityV4.js'],
   107: ['Kingdom Core Control Plane', 'platformV4Complete.js'],
-  108: ['Architecture Convergence', 'setup4.js'],
-  109: ['Kingdom Core Platform End-State', 'setup4.js']
+  108: ['Architecture Convergence', 'setup.js'],
+  109: ['Kingdom Core Platform End-State', 'setup.js']
 };
 
 export const APPROVED_V4_NUMBERS = Object.keys(APPROVED_V4_SYSTEMS).map(Number).sort((a, b) => a - b);
