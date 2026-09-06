@@ -1,6 +1,7 @@
 import { MessageFlags, PermissionFlagsBits, SlashCommandBuilder } from 'discord.js';
 import { installCarrierDepartmentV3 } from '../services/carrierDepartmentV3.js';
 import { installCarryPartiesV3 } from '../services/carryPartiesV3.js';
+import { installCommunityV4 } from '../services/communityV4.js';
 import { enforceSetup2Hierarchy } from '../services/hierarchySetup2.js';
 import { installPlatformV4 } from '../services/platformV4.js';
 import { runV4Maintenance } from '../services/platformV4Runtime.js';
@@ -42,6 +43,9 @@ export async function execute(interaction) {
   await progress('Installing the Kingdom Core v4 control plane and platform schema…');
   const platform = await installPlatformV4(interaction.guild, progress);
 
+  await progress('Installing events, notifications, mentors, archives and staff intelligence…');
+  const community = await installCommunityV4(interaction.guild);
+
   await progress('Running analytics, demand forecasting, quests and system diagnostics…');
   await runV4Maintenance(interaction.guild);
 
@@ -52,10 +56,11 @@ export async function execute(interaction) {
     '👑 **KINGDOM CORE v4 IS INSTALLED**',
     '',
     '**THE OPERATING PLATFORM**',
-    `• Platform schema: **v4**`,
+    '• Platform schema: **v4**',
     `• New platform categories: **${platform.summary.categoriesCreated}**`,
     `• New control channels: **${platform.summary.channelsCreated}**`,
-    `• Pinned operating dashboards: **${platform.summary.panels}**`,
+    `• Community automation channels: **${community.channelsCreated}**`,
+    `• Pinned operating dashboards: **${platform.summary.panels + community.panels}**`,
     `• Approved bot registry: **${platform.summary.approvedBots}**`,
     `• Registered webhooks: **${platform.summary.webhooks}**`,
     '',
@@ -76,9 +81,13 @@ export async function execute(interaction) {
     '• House standings + dynamic quest engine',
     '• treasury approvals + lending ledger',
     '• marketplace listings + market intelligence',
+    '• opt-in notification router + smart demand alerts',
+    '• Royal Calendar + RSVP + automatic teams + tournaments',
+    '• mentor matching + Royal Archives + build advisor',
     '',
     '**COMMAND + SECURITY**',
     '• staff command center + application/ticket analytics',
+    '• application/ticket/security/campaign staff briefs',
     '• server digital twin + drift audit/repair',
     '• bot/webhook registry + risk engine + emergency lockdown',
     '• versioned feature flags + health/self-diagnostics',
@@ -86,6 +95,7 @@ export async function execute(interaction) {
     '**PLATFORM ARCHITECTURE**',
     '• event/analytics state + demand forecasts + funnel metrics',
     '• optional read-only HTTP API + live WebSocket dashboard',
+    '• optional PostgreSQL + Redis adapters + background worker',
     '• automated maintenance + migration/version state',
     '',
     `**ROLE HIERARCHY:** ${hierarchy.verified} roles verified in order.`,
