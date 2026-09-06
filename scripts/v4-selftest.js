@@ -8,9 +8,11 @@ const checked = [];
 
 for (const [number, [name, file]] of Object.entries(APPROVED_V4_SYSTEMS)) {
   const candidates = [
+    path.join(root, 'src', file),
     path.join(root, 'src', 'services', file),
     path.join(root, 'src', 'commands', file),
     path.join(root, 'src', 'config', file),
+    path.join(root, 'src', 'ui', file),
     path.join(root, file),
     path.join(root, 'scripts', file)
   ];
