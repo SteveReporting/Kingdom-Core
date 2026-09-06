@@ -1,5 +1,10 @@
 import {
+  AutoModerationActionType,
+  AutoModerationRuleEventType,
+  AutoModerationRuleTriggerType,
   ChannelType,
+  GuildExplicitContentFilter,
+  GuildVerificationLevel,
   PermissionFlagsBits,
   PermissionsBitField
 } from 'discord.js';
@@ -22,13 +27,17 @@ import {
 } from '../ui/embeds.js';
 
 const permissionMap = {
+  Administrator: PermissionFlagsBits.Administrator,
   ManageGuild: PermissionFlagsBits.ManageGuild,
   ManageRoles: PermissionFlagsBits.ManageRoles,
   ManageChannels: PermissionFlagsBits.ManageChannels,
+  ManageWebhooks: PermissionFlagsBits.ManageWebhooks,
   ManageMessages: PermissionFlagsBits.ManageMessages,
+  ManageEvents: PermissionFlagsBits.ManageEvents,
   ModerateMembers: PermissionFlagsBits.ModerateMembers,
   KickMembers: PermissionFlagsBits.KickMembers,
-  BanMembers: PermissionFlagsBits.BanMembers
+  BanMembers: PermissionFlagsBits.BanMembers,
+  ViewAuditLog: PermissionFlagsBits.ViewAuditLog
 };
 
 const channelTypeMap = {
@@ -49,33 +58,51 @@ function firstChannelByName(guild, name, type) {
   return guild.channels.cache.find((channel) => channel.name === name && (!type || channel.type === type));
 }
 
-function privateCategoryOverwrites(guild, roles, mode) {
-  const allows = mode === 'staff' ? STAFF_KEYS : [...STAFF_KEYS, ...CARRIER_KEYS];
-  const overwrites = [
-    { id: guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] }
-  ];
-
-  for (const key of allows) {
+function roleAccessOverwrites(guild, roles, keys, { readOnly = false } = {}) {
+  const overwrites = [{ id: guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] }];
+  for (const key of [...new Set([...STAFF_KEYS, ...keys])]) {
     const role = roles[key];
-    if (role) {
-      overwrites.push({
-        id: role.id,
-        allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory]
-      });
-    }
+    if (!role) continue;
+    overwrites.push({
+      id: role.id,
+      allow: [
+        PermissionFlagsBits.ViewChannel,
+        PermissionFlagsBits.ReadMessageHistory,
+        ...(readOnly ? [] : [PermissionFlagsBits.SendMessages])
+      ]
+    });
   }
   return overwrites;
 }
 
-function channelOverwrites(guild, readOnly) {
+function privateCategoryOverwrites(guild, roles, mode) {
+  const allows = mode === 'staff' ? STAFF_KEYS : [...STAFF_KEYS, ...CARRIER_KEYS];
+  return roleAccessOverwrites(guild, roles, allows);
+}
+
+function publicChannelOverwrites(guild, roles, readOnly) {
   if (!readOnly) return undefined;
-  return [
-    {
-      id: guild.roles.everyone.id,
-      allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory],
-      deny: [PermissionFlagsBits.SendMessages]
-    }
-  ];
+  const overwrites = [{
+    id: guild.roles.everyone.id,
+    allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory],
+    deny: [PermissionFlagsBits.SendMessages]
+  }];
+  for (const key of STAFF_KEYS) {
+    const role = roles[key];
+    if (!role) continue;
+    overwrites.push({
+      id: role.id,
+      allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.SendMessages]
+    });
+  }
+  return overwrites;
+}
+
+function channelOverwrites(guild, roles, definition) {
+  if (definition.accessFor?.length) {
+    return roleAccessOverwrites(guild, roles, definition.accessFor, { readOnly: Boolean(definition.readOnly) });
+  }
+  return publicChannelOverwrites(guild, roles, definition.readOnly);
 }
 
 async function ensurePanel(channel, marker, payload, state) {
@@ -94,46 +121,117 @@ async function ensurePanel(channel, marker, payload, state) {
   return true;
 }
 
+async function ensureAutoMod(guild, channels, roles) {
+  const me = guild.members.me;
+  if (!me?.permissions.has(PermissionFlagsBits.ManageGuild)) return 0;
+  const existing = await guild.autoModerationRules.fetch().catch(() => null);
+  if (!existing) return 0;
+  let created = 0;
+  const exemptRoles = STAFF_KEYS.map((key) => roles[key]?.id).filter(Boolean).slice(0, 20);
+  const alertChannel = channels.securityLog;
+
+  const definitions = [
+    {
+      name: 'Kingdom Core • Mention Spam',
+      eventType: AutoModerationRuleEventType.MessageSend,
+      triggerType: AutoModerationRuleTriggerType.MentionSpam,
+      triggerMetadata: { mentionTotalLimit: 5, mentionRaidProtectionEnabled: true },
+      actions: [
+        { type: AutoModerationActionType.BlockMessage, metadata: { customMessage: 'Too many mentions. Slow down.' } },
+        ...(alertChannel ? [{ type: AutoModerationActionType.SendAlertMessage, metadata: { channel: alertChannel.id } }] : [])
+      ],
+      enabled: true,
+      exemptRoles
+    }
+  ];
+
+  for (const definition of definitions) {
+    if (existing.find((rule) => rule.name === definition.name)) continue;
+    await guild.autoModerationRules.create({ ...definition, reason: 'Kingdom Core /setup security baseline' }).catch(() => null);
+    created++;
+  }
+  return created;
+}
+
+async function hardenGuild(guild) {
+  const changes = [];
+  if (guild.verificationLevel < GuildVerificationLevel.Medium) {
+    await guild.setVerificationLevel(GuildVerificationLevel.Medium, 'Kingdom Core /setup security baseline').catch(() => null);
+    changes.push('verification');
+  }
+  if (guild.explicitContentFilter !== GuildExplicitContentFilter.AllMembers) {
+    await guild.setExplicitContentFilter(GuildExplicitContentFilter.AllMembers, 'Kingdom Core /setup security baseline').catch(() => null);
+    changes.push('content-filter');
+  }
+  return changes;
+}
+
 export async function setupGuild(guild, onProgress = async () => {}) {
   await guild.roles.fetch();
   await guild.channels.fetch();
   const state = await readGuildState(guild.id);
   state.setup ??= {};
+  state.security ??= { blockUnauthorizedBots: true };
 
-  const summary = { rolesCreated: 0, categoriesCreated: 0, channelsCreated: 0, panelsCreated: 0 };
+  const summary = {
+    rolesCreated: 0,
+    rolesUpdated: 0,
+    categoriesCreated: 0,
+    channelsCreated: 0,
+    panelsCreated: 0,
+    automodCreated: 0,
+    securityChanges: 0
+  };
   const roles = {};
 
-  await onProgress('Creating Kingdom roles…');
-  // Create lowest-priority roles first so leadership tends to remain visually higher on fresh servers.
+  await onProgress('Creating and repairing Kingdom roles…');
   for (const definition of [...ROLE_BLUEPRINT].reverse()) {
     let role = firstRoleByName(guild, definition.name);
+    const desiredPermissions = rolePermissions(definition.permissions);
     if (!role) {
       role = await guild.roles.create({
         name: definition.name,
         color: definition.color,
         hoist: definition.hoist,
-        permissions: rolePermissions(definition.permissions),
+        permissions: desiredPermissions,
         reason: 'Kingdom Core /setup'
       });
       summary.rolesCreated++;
+    } else {
+      const needsUpdate = role.color !== definition.color || role.hoist !== definition.hoist || !role.permissions.equals(desiredPermissions);
+      if (needsUpdate && role.editable) {
+        await role.edit({
+          color: definition.color,
+          hoist: definition.hoist,
+          permissions: desiredPermissions,
+          reason: 'Kingdom Core /setup repair'
+        }).catch(() => null);
+        summary.rolesUpdated++;
+      }
     }
     roles[definition.key] = role;
+  }
+
+  const owner = await guild.fetchOwner().catch(() => null);
+  if (owner && roles.crown && !owner.roles.cache.has(roles.crown.id)) {
+    await owner.roles.add(roles.crown, 'Kingdom Core /setup assigns The Crown to server owner').catch(() => null);
   }
 
   const categories = {};
   await onProgress('Raising the Kingdom categories…');
   for (const definition of CATEGORY_BLUEPRINT) {
     let category = firstChannelByName(guild, definition.name, ChannelType.GuildCategory);
+    const overwrites = definition.privateFor ? privateCategoryOverwrites(guild, roles, definition.privateFor) : undefined;
     if (!category) {
       category = await guild.channels.create({
         name: definition.name,
         type: ChannelType.GuildCategory,
-        permissionOverwrites: definition.privateFor
-          ? privateCategoryOverwrites(guild, roles, definition.privateFor)
-          : undefined,
+        permissionOverwrites: overwrites,
         reason: 'Kingdom Core /setup'
       });
       summary.categoriesCreated++;
+    } else if (overwrites) {
+      await category.permissionOverwrites.set(overwrites, 'Kingdom Core /setup repair').catch(() => null);
     }
     categories[definition.key] = category;
   }
@@ -146,20 +244,28 @@ export async function setupGuild(guild, onProgress = async () => {}) {
       ? ChannelType.GuildText
       : targetType;
     let channel = firstChannelByName(guild, definition.name, resolvedType);
+    const category = categories[definition.category];
+    const categoryPrivate = CATEGORY_BLUEPRINT.find((c) => c.key === definition.category)?.privateFor;
+    const overwrites = definition.accessFor?.length
+      ? channelOverwrites(guild, roles, definition)
+      : (categoryPrivate ? undefined : channelOverwrites(guild, roles, definition));
 
     if (!channel) {
       channel = await guild.channels.create({
         name: definition.name,
         type: resolvedType,
-        parent: categories[definition.category]?.id,
-        permissionOverwrites: CATEGORY_BLUEPRINT.find((c) => c.key === definition.category)?.privateFor
-          ? undefined
-          : channelOverwrites(guild, definition.readOnly),
+        parent: category?.id,
+        permissionOverwrites: overwrites,
         reason: 'Kingdom Core /setup'
       });
       summary.channelsCreated++;
-    } else if (!channel.parentId && categories[definition.category]) {
-      await channel.setParent(categories[definition.category].id, { lockPermissions: false }).catch(() => null);
+    } else {
+      if (category && channel.parentId !== category.id) {
+        await channel.setParent(category.id, { lockPermissions: false }).catch(() => null);
+      }
+      if (overwrites) {
+        await channel.permissionOverwrites.set(overwrites, 'Kingdom Core /setup repair').catch(() => null);
+      }
     }
     channels[definition.key] = channel;
   }
@@ -167,6 +273,10 @@ export async function setupGuild(guild, onProgress = async () => {}) {
   state.setup.roles = Object.fromEntries(Object.entries(roles).map(([key, role]) => [key, role.id]));
   state.setup.categories = Object.fromEntries(Object.entries(categories).map(([key, channel]) => [key, channel.id]));
   state.setup.channels = Object.fromEntries(Object.entries(channels).map(([key, channel]) => [key, channel.id]));
+
+  await onProgress('Applying server security and AutoMod…');
+  summary.securityChanges = (await hardenGuild(guild)).length;
+  summary.automodCreated = await ensureAutoMod(guild, channels, roles);
 
   await onProgress('Posting the core Kingdom panels…');
   const mentions = Object.fromEntries(Object.entries(channels).map(([key, channel]) => [key, `<#${channel.id}>`]));
@@ -179,6 +289,7 @@ export async function setupGuild(guild, onProgress = async () => {}) {
   summary.panelsCreated += Number(await ensurePanel(channels.quests, 'quests', questPanel(), state));
 
   state.setup.completedAt = new Date().toISOString();
+  state.setup.version = 2;
   await writeGuildState(guild.id, state);
   return { summary, roles, categories, channels, state };
 }
