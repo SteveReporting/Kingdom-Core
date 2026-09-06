@@ -55,6 +55,7 @@ function pushEvent(state, type, data = {}) {
 }
 
 function updateKingdomStage(state) {
+  state.kingdom ??= { xp: 0 };
   const xp = state.kingdom?.xp ?? 0;
   let stage = STAGES[0][1];
   let level = 1;
@@ -81,10 +82,7 @@ export function recordCarryTransition(state, ticket, action, actorId) {
     partySize: members.length
   });
 
-  if (action === 'requested') {
-    for (const userId of members) ensureProfile(state, userId);
-  }
-  if (action === 'joined') {
+  if (action === 'requested' || action === 'joined') {
     for (const userId of members) ensureProfile(state, userId);
   }
   if (action === 'claimed' && ticket.carrierId) {
@@ -114,9 +112,16 @@ export function recordCarryTransition(state, ticket, action, actorId) {
       carrierIdentity.stats.carriesCompleted = (carrierIdentity.stats.carriesCompleted ?? 0) + members.length;
       carrierIdentity.kingdomXp = (carrierIdentity.kingdomXp ?? 0) + 20 + members.length * 2;
     }
-    state.kingdom ??= { xp: 0 };
     state.kingdom.xp = (state.kingdom.xp ?? 0) + 25 + members.length * 10;
     updateKingdomStage(state);
+  }
+}
+
+function backfillCarryLifecycle(state) {
+  for (const ticket of Object.values(state.carryTickets ?? {})) {
+    if (ticket.status !== 'completed' || ticket.v4ProcessedAt) continue;
+    recordCarryTransition(state, ticket, 'completed', ticket.completedBy ?? ticket.carrierId ?? null);
+    ticket.v4ProcessedAt = new Date().toISOString();
   }
 }
 
@@ -150,8 +155,7 @@ function rebuildDemand(state) {
 }
 
 function updateFunnels(state) {
-  const ids = state.identities ?? {};
-  const profiles = Object.values(ids);
+  const profiles = Object.values(state.identities ?? {});
   state.analyticsV4.funnels = {
     identities: profiles.length,
     receivedCarry: profiles.filter((p) => (p.stats?.carriesReceived ?? 0) > 0).length,
@@ -189,6 +193,7 @@ export async function runV4Maintenance(guild) {
   const state = await readGuildState(guild.id);
   if (!state.platform?.schemaVersion) return false;
   await mutateGuildState(guild.id, async (fresh) => {
+    backfillCarryLifecycle(fresh);
     rebuildDemand(fresh);
     updateFunnels(fresh);
     generateQuests(fresh);
