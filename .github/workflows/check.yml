@@ -25,3 +25,6 @@ jobs:
       - name: Import setup3 addon modules
         run: |
           node -e "Promise.all([import('./src/commands/setup3.js'),import('./src/services/carryPartiesV3.js'),import('./src/services/carrierDepartmentV3.js'),import('./src/services/serverStatsVerification.js')]).then(()=>console.log('setup3 module imports OK'))"
+      - name: Import setup4 platform modules
+        run: |
+          node -e "Promise.all([import('./src/commands/setup4.js'),import('./src/services/platformV4.js'),import('./src/services/platformV4Runtime.js'),import('./src/services/platformV4Interactions.js'),import('./src/services/platformApiV4.js'),import('./src/services/securityV4.js')]).then(()=>console.log('setup4 platform imports OK'))"
