@@ -333,7 +333,15 @@ async function ensureAutoModUpgrade(guild, state, roles) {
   for (const definition of definitions) {
     const rule = existing.find((item) => item.name === definition.name);
     if (rule) {
-      await rule.edit({ ...definition, reason: 'Kingdom Core /setup2 security upgrade' }).catch(() => null);
+      const editPayload = {
+        name: definition.name,
+        actions: definition.actions,
+        enabled: definition.enabled,
+        exemptRoles: definition.exemptRoles,
+        reason: 'Kingdom Core /setup2 security upgrade'
+      };
+      if (definition.triggerMetadata) editPayload.triggerMetadata = definition.triggerMetadata;
+      await rule.edit(editPayload).catch(() => null);
       changed++;
     } else {
       await guild.autoModerationRules.create({ ...definition, reason: 'Kingdom Core /setup2 security upgrade' }).catch(() => null);
