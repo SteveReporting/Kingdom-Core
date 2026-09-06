@@ -6,7 +6,7 @@ import { installCommunityV4 } from '../services/communityV4.js';
 import { enforceSetup2Hierarchy } from '../services/hierarchySetup2.js';
 import { installLevelRoles } from '../services/levelRoles.js';
 import { installPlatformV4 } from '../services/platformV4.js';
-import { installPlatformV4Complete } from '../services/platformV4Complete.js';
+import { installPlatformV4Complete, runPlatformV4CompleteMaintenance } from '../services/platformV4Complete.js';
 import { runV4Maintenance } from '../services/platformV4Runtime.js';
 import { installStatsAndVerification } from '../services/serverStatsVerification.js';
 import { finishPermissionMatrix } from '../services/setup2Finishing.js';
@@ -70,6 +70,7 @@ export async function execute(interaction) {
   const community = await installCommunityV4(interaction.guild);
   const complete = await installPlatformV4Complete(interaction.guild);
   await runV4Maintenance(interaction.guild);
+  await runPlatformV4CompleteMaintenance(interaction.guild);
 
   await progress('Consolidating categories and cleaning safe duplicates…');
   const compact = await compactGuildStructure(interaction.guild, progress);
