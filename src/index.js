@@ -7,7 +7,9 @@ import {
   MessageFlags
 } from 'discord.js';
 import { execute as executeSetup } from './commands/setup.js';
+import { execute as executeMod } from './commands/mod.js';
 import { handleButton, handleModal } from './services/interactions.js';
+import { handleAuditLogEntry } from './services/security.js';
 
 const token = process.env.TOKEN;
 if (!token) {
@@ -16,7 +18,7 @@ if (!token) {
 }
 
 const client = new Client({
-  intents: [GatewayIntentBits.Guilds]
+  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildModeration]
 });
 
 client.once(Events.ClientReady, (readyClient) => {
@@ -27,11 +29,25 @@ client.once(Events.ClientReady, (readyClient) => {
   });
 });
 
+client.on(Events.GuildAuditLogEntryCreate, async (entry, guild) => {
+  try {
+    await handleAuditLogEntry(entry, guild, client.user?.id);
+  } catch (error) {
+    console.error('Security event error:', error);
+  }
+});
+
 client.on(Events.InteractionCreate, async (interaction) => {
   try {
-    if (interaction.isChatInputCommand() && interaction.commandName === 'setup') {
-      await executeSetup(interaction);
-      return;
+    if (interaction.isChatInputCommand()) {
+      if (interaction.commandName === 'setup') {
+        await executeSetup(interaction);
+        return;
+      }
+      if (interaction.commandName === 'mod') {
+        await executeMod(interaction);
+        return;
+      }
     }
     if (interaction.isButton()) {
       await handleButton(interaction);
