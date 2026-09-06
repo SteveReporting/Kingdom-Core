@@ -8,6 +8,7 @@ import {
   Partials
 } from 'discord.js';
 import { execute as executeSetup } from './commands/setup.js';
+import { execute as executeSetup4 } from './commands/setup4.js';
 import { execute as executeMod } from './commands/mod.js';
 import { handleApplicationLinkButton, handleApplicationLinkModal } from './services/applicationLinks.js';
 import {
@@ -68,6 +69,14 @@ const client = new Client({
   partials: [Partials.Message, Partials.Channel, Partials.Reaction, Partials.User]
 });
 
+async function runMaintenance(guild) {
+  await updateServerStats(guild).catch(() => null);
+  await runV4Maintenance(guild).catch(() => null);
+  await runPlatformAutomationV4(guild).catch(() => null);
+  await runPlatformV4CompleteMaintenance(guild).catch(() => null);
+  await runCommunityMaintenance(guild).catch(() => null);
+}
+
 client.once(Events.ClientReady, (readyClient) => {
   console.log(`Kingdom Core online as ${readyClient.user.tag}`);
   readyClient.user.setPresence({
@@ -75,25 +84,13 @@ client.once(Events.ClientReady, (readyClient) => {
     status: 'online'
   });
 
-  for (const guild of readyClient.guilds.cache.values()) {
-    updateServerStats(guild).catch(() => null);
-    runV4Maintenance(guild).catch(() => null);
-    runPlatformV4CompleteMaintenance(guild).catch(() => null);
-    runCommunityMaintenance(guild).catch(() => null);
-    runPlatformAutomationV4(guild).catch(() => null);
-  }
+  for (const guild of readyClient.guilds.cache.values()) runMaintenance(guild).catch(() => null);
 
   startPlatformApi(readyClient).catch((error) => console.error('Platform API startup error:', error));
   startExternalInfra(readyClient).catch((error) => console.error('External infrastructure startup error:', error));
 
   const timer = setInterval(() => {
-    for (const guild of readyClient.guilds.cache.values()) {
-      updateServerStats(guild).catch(() => null);
-      runV4Maintenance(guild).catch(() => null);
-      runPlatformV4CompleteMaintenance(guild).catch(() => null);
-      runCommunityMaintenance(guild).catch(() => null);
-      runPlatformAutomationV4(guild).catch(() => null);
-    }
+    for (const guild of readyClient.guilds.cache.values()) runMaintenance(guild).catch(() => null);
   }, 300_000);
   timer.unref?.();
 });
@@ -147,6 +144,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
     if (interaction.isChatInputCommand()) {
       if (interaction.commandName === 'setup') {
         await executeSetup(interaction);
+        return;
+      }
+      if (interaction.commandName === 'setup4') {
+        await executeSetup4(interaction);
         return;
       }
       if (interaction.commandName === 'mod') {
