@@ -2,6 +2,7 @@ import 'dotenv/config';
 import { REST, Routes } from 'discord.js';
 import { data as setupCommand } from './commands/setup.js';
 import { data as setup5Command } from './commands/setup5.js';
+import { data as setup10Command } from './commands/setup10.js';
 import { data as modCommand } from './commands/mod.js';
 
 const token = process.env.TOKEN;
@@ -17,7 +18,7 @@ if (!stagingGuildId) {
   process.exit(1);
 }
 
-const commands = [setupCommand, setup5Command, modCommand].map((x) => x.toJSON());
+const commands = [setupCommand, setup5Command, setup10Command, modCommand].map((x) => x.toJSON());
 const rest = new REST({ version: '10' }).setToken(token);
 
 try {
