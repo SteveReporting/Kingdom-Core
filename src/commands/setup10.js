@@ -1,4 +1,4 @@
-import { MessageFlags, PermissionFlagsBits, SlashCommandBuilder } from 'discord.js';
+import { EmbedBuilder, MessageFlags, PermissionFlagsBits, SlashCommandBuilder } from 'discord.js';
 import { installCarrierDepartmentV3 } from '../services/carrierDepartmentV3.js';
 import { installCarryPartiesV3 } from '../services/carryPartiesV3.js';
 import { installCommunityV4, runCommunityMaintenance } from '../services/communityV4.js';
@@ -96,50 +96,70 @@ export async function execute(interaction) {
   const s = v10Verification.structure;
   const r = v10Verification.resources;
 
-  await interaction.editReply([
-    '👑 **KINGDOM CORE v10 • REALM OS ONLINE**',
-    '',
-    '**370-SYSTEM ROADMAP**',
-    `• Approved systems registered: **${v10Verification.approved}/370**`,
-    `• Shared domain engines: **${v10.engines}** across **${v10.domains}** major domains`,
-    `• Runtime engine mode: **${realm.runtimeMode}**`,
-    `• Domain hubs mapped into existing channels: **${v10Verification.mappedHubs}/${v10.domains}**`,
-    '• AI systems #291–300 are installed as an adapter but **temporarily disabled** for VPS stability.',
-    '',
-    '**NO CHANNEL-SPRAWL DESIGN**',
-    '• v10 reuses the existing carry, member, House, quest, market, event, support, Knight, staff, security and analytics surfaces.',
-    `• New v10 fallback channels created only if no usable control surface existed: **${v10.fallbackChannelsCreated}**`,
-    `• Categories consolidated/removed: **${c.categoriesRemoved}** obsolete duplicates`,
-    `• Channels moved into the shared category layout: **${c.channelsMoved}**`,
-    `• Safe empty duplicate channels removed: **${c.duplicateChannelsRemoved}**`,
-    `• Populated duplicates deliberately preserved: **${c.populatedDuplicatesSkipped}**`,
-    '',
-    '**LIVE STRUCTURE AFTER CONVERGENCE**',
-    `• Categories: **${s.categories}**`,
-    `• Text/announcement surfaces: **${s.text + s.announcements}**`,
-    `• Voice surfaces: **${s.voice}**`,
-    `• Remaining exact duplicate-name groups: **${s.exactDuplicateGroups}**`,
-    '',
-    '**RESOURCE / STABILITY**',
-    `• VPS resource mode: **${r.pressure}**`,
-    `• Kingdom Core RSS: **${r.processRssMb} MB**`,
-    `• Host free memory at verification: **${r.freeMemoryMb} MB**`,
-    '• Background concurrency is capped at **1**, heavy analytics are throttled, panel refreshes are throttled and AI stays off.',
-    '',
-    '**PLATFORM REPAIR**',
-    `• Base roles created/repaired: **${b.rolesCreated}/${b.rolesUpdated}**`,
-    `• Permission targets repaired: **${(u.permissionsRepaired ?? 0) + permissionRepairs}**`,
-    `• Premium base panels repaired: **${p.panelsUpdated ?? 0}**`,
-    `• Advanced control surfaces created only where missing: **${advanced.created ?? 0}**`,
-    `• Existing platform/community channels created only where absent: **${platform.summary.channelsCreated + community.channelsCreated + (advanced.created ?? 0)}**`,
-    `• Level roles installed: **${levels.roles}**`,
-    `• Verification stats mode: **${stats.snapshot.exact ? 'exact' : 'cache-based'}**`,
-    `• Carry parties merged during migration: **${carries.merged ?? 0}**`,
-    `• Knight panels repaired: **${carrier.panels ?? 0}**`,
-    `• v5 compatibility systems retained: **${v5.approved}**`,
-    `• Digital twin drift after migration: **${v5Verification.drift}**`,
-    `• Final role hierarchy verified: **${hierarchy.verified} roles**`,
-    '',
-    '✅ `/setup10` is idempotent and convergence-first: it reads what is already there, reuses IDs, centralises features into shared hubs, removes only safe empty duplicates, and preserves populated/manual channels.'
-  ].join('\n'));
+  const completion = new EmbedBuilder()
+    .setColor(0xd4af37)
+    .setTitle('👑 KINGDOM CORE v10 • REALM OS ONLINE')
+    .setDescription('The Kingdom has been converged into the v10 shared-engine architecture. Existing channels are reused wherever possible; v10 does **not** create one channel or command per feature.')
+    .addFields(
+      {
+        name: '🧭 370-System Roadmap',
+        value: [
+          `**${v10Verification.approved}/370** approved systems registered`,
+          `**${v10.engines}** shared engines across **${v10.domains}** domains`,
+          `**${v10Verification.mappedHubs}/${v10.domains}** domains mapped into existing hubs`,
+          `Runtime: **${realm.runtimeMode}**`,
+          'AI #291–300: **installed but paused** for VPS stability'
+        ].join('\n')
+      },
+      {
+        name: '🏰 Structure Convergence',
+        value: [
+          `Fallback v10 channels created: **${v10.fallbackChannelsCreated}**`,
+          `Obsolete duplicate categories removed: **${c.categoriesRemoved}**`,
+          `Channels moved into shared categories: **${c.channelsMoved}**`,
+          `Safe empty duplicate channels removed: **${c.duplicateChannelsRemoved}**`,
+          `Populated duplicates preserved: **${c.populatedDuplicatesSkipped}**`
+        ].join('\n')
+      },
+      {
+        name: '📊 Live Server Map',
+        value: [
+          `Categories: **${s.categories}**`,
+          `Text/announcement surfaces: **${s.text + s.announcements}**`,
+          `Voice surfaces: **${s.voice}**`,
+          `Remaining exact duplicate groups: **${s.exactDuplicateGroups}**`
+        ].join('\n')
+      },
+      {
+        name: '💓 Stability Guard',
+        value: [
+          `Resource pressure: **${r.pressure}**`,
+          `Kingdom Core RSS: **${r.processRssMb} MB**`,
+          `Host free memory: **${r.freeMemoryMb} MB**`,
+          'Background concurrency: **1** · Realm maintenance: **15m minimum**',
+          'Heavy analytics throttled · panel refreshes throttled · AI disabled'
+        ].join('\n')
+      },
+      {
+        name: '🛠️ Repair / Compatibility',
+        value: [
+          `Roles created/repaired: **${b.rolesCreated}/${b.rolesUpdated}**`,
+          `Permission targets repaired: **${(u.permissionsRepaired ?? 0) + permissionRepairs}**`,
+          `Premium panels repaired: **${p.panelsUpdated ?? 0}**`,
+          `Advanced surfaces created only where missing: **${advanced.created ?? 0}**`,
+          `Legacy platform/community surfaces added only where absent: **${platform.summary.channelsCreated + community.channelsCreated + (advanced.created ?? 0)}**`,
+          `Level roles: **${levels.roles}** · stats: **${stats.snapshot.exact ? 'exact' : 'cache-based'}**`,
+          `Carry parties merged: **${carries.merged ?? 0}** · Knight panels: **${carrier.panels ?? 0}**`,
+          `v5 compatibility systems retained: **${v5.approved}**`
+        ].join('\n')
+      },
+      {
+        name: '🪞 Final Verification',
+        value: `Digital-twin drift: **${v5Verification.drift}**\nRole hierarchy verified: **${hierarchy.verified} roles**\n✅ Idempotent · convergence-first · populated/manual channels preserved`
+      }
+    )
+    .setFooter({ text: 'Kingdom Core v10 • Realm Operating System' })
+    .setTimestamp();
+
+  await interaction.editReply({ content: '', embeds: [completion] });
 }
