@@ -25,13 +25,18 @@ jobs:
       - name: Import setup5 migration
         run: |
           node -e "Promise.all([import('./src/commands/setup5.js'),import('./src/services/platformV5.js')]).then(()=>console.log('setup5 imports OK'))"
+      - name: Import setup10 Realm OS
+        run: |
+          node -e "Promise.all([import('./src/commands/setup10.js'),import('./src/services/platformV10.js'),import('./src/config/approvedSystemsV10.js')]).then(()=>console.log('setup10 imports OK'))"
       - name: Import migration services
         run: |
           node -e "Promise.all([import('./src/services/setupGuild.js'),import('./src/services/setupUpgrade.js'),import('./src/services/setup2Finishing.js'),import('./src/services/setup2Ultimate.js'),import('./src/services/carryTickets.js'),import('./src/services/applicationLinks.js'),import('./src/services/ticketControlV2.js'),import('./src/services/hierarchySetup2.js')]).then(()=>console.log('migration services imports OK'))"
       - name: Import platform modules
         run: |
-          node -e "Promise.all([import('./src/services/platformV4.js'),import('./src/services/platformV4Runtime.js'),import('./src/services/platformV4Interactions.js'),import('./src/services/platformV4Complete.js'),import('./src/services/platformV4Automation.js'),import('./src/services/platformV5.js'),import('./src/services/platformApiV4.js'),import('./src/services/externalInfraV4.js'),import('./src/services/communityV4.js'),import('./src/services/securityV4.js'),import('./src/ui/kingdomV4Ui.js')]).then(()=>console.log('platform imports OK'))"
+          node -e "Promise.all([import('./src/services/platformV4.js'),import('./src/services/platformV4Runtime.js'),import('./src/services/platformV4Interactions.js'),import('./src/services/platformV4Complete.js'),import('./src/services/platformV4Automation.js'),import('./src/services/platformV5.js'),import('./src/services/platformV10.js'),import('./src/services/platformApiV4.js'),import('./src/services/externalInfraV4.js'),import('./src/services/communityV4.js'),import('./src/services/securityV4.js'),import('./src/ui/kingdomV4Ui.js')]).then(()=>console.log('platform imports OK'))"
       - name: Approved roadmap v4 self-test
         run: npm run selftest:v4
       - name: Approved roadmap v5 self-test
         run: npm run selftest:v5
+      - name: Approved roadmap v10 self-test
+        run: npm run selftest:v10
