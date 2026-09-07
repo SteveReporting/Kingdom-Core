@@ -45,6 +45,7 @@ import {
 import { startPlatformApi } from './services/platformApiV4.js';
 import { runV4Maintenance, trackPlatformEvent } from './services/platformV4Runtime.js';
 import { handleV10Button, runV10Maintenance } from './services/platformV10.js';
+import { runRealmMaintenanceV10 } from './services/realmRuntimeV10.js';
 import { handleQueueButton, handleQueueSelect } from './services/queueV2.js';
 import { handleAuditLogEntry, handleMessageSpam } from './services/security.js';
 import { handleV4AuditEvent } from './services/securityV4.js';
@@ -105,6 +106,7 @@ async function runMaintenance(guild) {
     await runStep('platform-automation', () => runPlatformAutomationV4(guild));
     await runStep('heartbeat-safe-v5', () => runHeartbeatSafePlatformMaintenance(guild));
     await runStep('community', () => runCommunityMaintenance(guild));
+    await runStep('v10-realm-engines', () => runRealmMaintenanceV10(guild));
     await runStep('v10-resource-guard', () => runV10Maintenance(guild));
   } finally {
     maintenanceInFlight.delete(guild.id);
