@@ -13,6 +13,7 @@ import { runV4Maintenance } from '../services/platformV4Runtime.js';
 import { finalizePlatformV5, installPlatformV5 } from '../services/platformV5.js';
 import { finalizePlatformV10, installPlatformV10, runV10Maintenance } from '../services/platformV10.js';
 import { installRealmEnginesRuntimeV10, runRealmMaintenanceV10 } from '../services/realmRuntimeV10.js';
+import { installRealmIntelligenceRuntimeV10, runRealmIntelligenceMaintenanceV10 } from '../services/realmIntelligenceRuntimeV10.js';
 import { installStatsAndVerification } from '../services/serverStatsVerification.js';
 import { finishPermissionMatrix } from '../services/setup2Finishing.js';
 import { installUltimateSetup2 } from '../services/setup2Ultimate.js';
@@ -21,7 +22,7 @@ import { upgradeGuild } from '../services/setupUpgrade.js';
 
 export const data = new SlashCommandBuilder()
   .setName('setup10')
-  .setDescription('Converge Kingdom Carries into the complete 370-system Kingdom Core v10 Realm OS.')
+  .setDescription('Converge Kingdom Carries into the complete Kingdom Core v10 Realm OS.')
   .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
   .setDMPermission(false);
 
@@ -67,16 +68,18 @@ export async function execute(interaction) {
   const advanced = await installPlatformV4Complete(interaction.guild);
   const v5 = await installPlatformV5(interaction.guild);
 
-  await progress('06/10 • Installing the 370-system v10 shared engines and routing them into existing hubs…');
+  await progress('06/10 • Installing v10 shared engines plus the approved Realm Intelligence layer…');
   const v10 = await installPlatformV10(interaction.guild);
   const realm = await installRealmEnginesRuntimeV10(interaction.guild);
+  const intelligence = await installRealmIntelligenceRuntimeV10(interaction.guild);
 
-  await progress('07/10 • Running heartbeat-safe maintenance and low-memory resource guards…');
+  await progress('07/10 • Running heartbeat-safe maintenance, intelligence checks and low-memory resource guards…');
   await runV4Maintenance(interaction.guild);
   await runPlatformAutomationV4(interaction.guild);
   await runHeartbeatSafePlatformMaintenance(interaction.guild);
   await runCommunityMaintenance(interaction.guild);
   await runRealmMaintenanceV10(interaction.guild);
+  await runRealmIntelligenceMaintenanceV10(interaction.guild);
   await runV10Maintenance(interaction.guild);
 
   await progress('08/10 • Converging duplicate categories and removing only safe empty duplicate channels…');
@@ -102,13 +105,26 @@ export async function execute(interaction) {
     .setDescription('The Kingdom has been converged into the v10 shared-engine architecture. Existing channels are reused wherever possible; v10 does **not** create one channel or command per feature.')
     .addFields(
       {
-        name: '🧭 370-System Roadmap',
+        name: '🧭 Approved Roadmap',
         value: [
-          `**${v10Verification.approved}/370** approved systems registered`,
+          `**${v10Verification.approved}/${v10Verification.approved}** approved systems registered`,
           `**${v10.engines}** shared engines across **${v10.domains}** domains`,
           `**${v10Verification.mappedHubs}/${v10.domains}** domains mapped into existing hubs`,
+          `Realm Intelligence extensions: **${intelligence.approvedExtensions}/19**`,
+          'System **#385 Role Compression**: intentionally **not included**',
           `Runtime: **${realm.runtimeMode}**`,
           'AI #291–300: **installed but paused** for VPS stability'
+        ].join('\n')
+      },
+      {
+        name: '🧠 Realm Intelligence',
+        value: [
+          'Kingdom Graph + universal member context + command search',
+          'Anomaly detection + queue fairness + capacity/bottleneck modelling',
+          'Capacity reservations + standby Knights + recovery director',
+          'Policy simulation + shadow mode + permission compiler + impact analysis',
+          'Incident commander + data integrity + identity resolution + service routing',
+          'Guarded Realm Autopilot with approval boundaries for destructive actions'
         ].join('\n')
       },
       {
@@ -136,7 +152,7 @@ export async function execute(interaction) {
           `Resource pressure: **${r.pressure}**`,
           `Kingdom Core RSS: **${r.processRssMb} MB**`,
           `Host free memory: **${r.freeMemoryMb} MB**`,
-          'Background concurrency: **1** · Realm maintenance: **15m minimum**',
+          'Background concurrency: **1** · Realm/intelligence maintenance: **15m minimum**',
           'Heavy analytics throttled · panel refreshes throttled · AI disabled'
         ].join('\n')
       },
