@@ -122,13 +122,11 @@ if (safe.approvalRequired) failures.push('Safe autopilot action was incorrectly 
 if (runAutopilotV10(state, { pressure: 'normal' }).executed < 1) failures.push('Guarded autopilot safe-action smoke test failed.');
 
 await Promise.all([
-  import('../src/commands/setup10.js'),
   import('../src/services/platformV10.js'),
   import('../src/services/realmEnginesV10.js'),
   import('../src/services/realmRuntimeV10.js'),
   import('../src/services/realmIntelligenceV10.js'),
   import('../src/services/realmIntelligenceRuntimeV10.js'),
-  import('../src/services/compactGuild.js'),
   import('../src/services/maintenanceV5Safe.js'),
   import('../src/services/gatewayHealth.js')
 ]);
@@ -139,4 +137,4 @@ if (failures.length) {
   process.exit(1);
 }
 
-console.log(`Kingdom Core v10 self-test passed: ${APPROVED_V10_NUMBERS.length} approved systems through #${V10_HIGHEST_SYSTEM}, #385 excluded, ${V10_DOMAINS.length} domains, ${V10_ENGINE_KEYS.length} shared engines, 19 Realm Intelligence extensions validated.`);
+console.log(`Kingdom Core v10 self-test passed: ${APPROVED_V10_NUMBERS.length} approved systems through #${V10_HIGHEST_SYSTEM}, #385 excluded, ${V10_DOMAINS.length} domains, ${V10_ENGINE_KEYS.length} shared engines, 19 Realm Intelligence extensions validated; /setup10 is retired.`);
