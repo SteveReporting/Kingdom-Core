@@ -9,6 +9,7 @@ import {
 } from 'discord.js';
 import { execute as executeSetup } from './commands/setup.js';
 import { execute as executeSetup2 } from './commands/setup2.js';
+import { execute as executeSetup3 } from './commands/setup3.js';
 import { execute as executeMod } from './commands/mod.js';
 import { handleApplicationLinkButton, handleApplicationLinkModal } from './services/applicationLinks.js';
 import {
@@ -193,6 +194,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
       }
       if (interaction.commandName === 'setup2') {
         await executeSetup2(interaction);
+        return;
+      }
+      if (interaction.commandName === 'setup3') {
+        await executeSetup3(interaction);
         return;
       }
       if (interaction.commandName === 'mod') {
