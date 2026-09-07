@@ -1,6 +1,12 @@
 import http from 'node:http';
 import { WebSocketServer } from 'ws';
 import { readGuildState } from '../storage/store.js';
+import {
+  createWebsiteCarryTicket,
+  getWebsiteMemberProfile,
+  normaliseWebsiteBridgeError,
+  updateWebsiteMemberProfile
+} from './websiteBridge.js';
 
 let server = null;
 let wss = null;
@@ -26,8 +32,64 @@ function authorised(req) {
   return req.headers.authorization === `Bearer ${required}`;
 }
 
+function requestUserId(req) {
+  const value = req.headers['x-kingdom-user-id'];
+  return Array.isArray(value) ? value[0] : String(value ?? '').trim();
+}
+
+async function readJsonBody(req, maxBytes = 32 * 1024) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let size = 0;
+    req.on('data', (chunk) => {
+      size += chunk.length;
+      if (size > maxBytes) {
+        reject(Object.assign(new Error('request_too_large'), { status: 413 }));
+        req.destroy();
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on('end', () => {
+      if (!chunks.length) return resolve({});
+      try {
+        resolve(JSON.parse(Buffer.concat(chunks).toString('utf8')));
+      } catch {
+        reject(Object.assign(new Error('invalid_json'), { status: 400 }));
+      }
+    });
+    req.on('error', reject);
+  });
+}
+
 function membersOf(ticket) {
   return [...new Set((ticket.members ?? [ticket.userId]).filter(Boolean))];
+}
+
+function publicTicket(guild, ticket) {
+  const carrier = ticket.carrierId ? guild.members.cache.get(ticket.carrierId) : null;
+  return {
+    id: ticket.id,
+    userId: ticket.userId,
+    username: ticket.displayName || ticket.username || 'Member',
+    dungeon: ticket.dungeon,
+    difficulty: ticket.difficulty,
+    mode: ticket.mode,
+    level: ticket.level ?? null,
+    robloxUsername: ticket.robloxUsername ?? null,
+    region: ticket.region ?? null,
+    partyRequirements: ticket.partyRequirements ?? null,
+    notes: ticket.notes ?? '',
+    status: ticket.status,
+    carrierId: ticket.carrierId ?? null,
+    carrierName: carrier?.displayName ?? carrier?.user?.username ?? null,
+    createdAt: ticket.createdAt,
+    claimedAt: ticket.claimedAt ?? null,
+    startedAt: ticket.startedAt ?? null,
+    completedAt: ticket.completedAt ?? null,
+    closedAt: ticket.closedAt ?? null,
+    source: ticket.source ?? 'discord'
+  };
 }
 
 async function snapshot(client, guildId) {
@@ -97,6 +159,8 @@ fetch('/api/overview'+(guild?'?guild='+guild:'')).then(r=>r.json()).then(render)
 async function handler(client, req, res) {
   const url = new URL(req.url, 'http://localhost');
   const guildId = url.searchParams.get('guild') || client.guilds.cache.first()?.id;
+  const guild = client.guilds.cache.get(guildId) ?? client.guilds.cache.first();
+
   if (url.pathname === '/') {
     const body = dashboardHtml();
     res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'content-length': Buffer.byteLength(body), 'cache-control': 'no-store' });
@@ -109,9 +173,71 @@ async function handler(client, req, res) {
     const data = await snapshot(client, guildId);
     return data ? json(res, 200, data) : json(res, 404, { error: 'guild_not_found' });
   }
-  const state = guildId ? await readGuildState(guildId).catch(() => null) : null;
+  if (!guild) return json(res, 404, { error: 'guild_not_found' });
+
+  if (url.pathname === '/api/carries/request' && req.method === 'POST') {
+    if (!authorised(req)) return json(res, 401, { error: 'unauthorised' });
+    const userId = requestUserId(req);
+    if (!userId) return json(res, 401, { error: 'missing_user' });
+    try {
+      const body = await readJsonBody(req);
+      const result = await createWebsiteCarryTicket(guild, { ...body, userId });
+      return json(res, 201, {
+        ok: true,
+        guildId: result.guildId,
+        ticket: publicTicket(guild, result.ticket)
+      });
+    } catch (error) {
+      const normalised = normaliseWebsiteBridgeError(error);
+      return json(res, normalised.status, normalised.body);
+    }
+  }
+
+  if (url.pathname === '/api/member' && req.method === 'GET') {
+    if (!authorised(req)) return json(res, 401, { error: 'unauthorised' });
+    const userId = requestUserId(req);
+    if (!userId) return json(res, 401, { error: 'missing_user' });
+    try {
+      return json(res, 200, await getWebsiteMemberProfile(guild, userId));
+    } catch (error) {
+      const normalised = normaliseWebsiteBridgeError(error);
+      return json(res, normalised.status, normalised.body);
+    }
+  }
+
+  if (url.pathname === '/api/member' && req.method === 'PATCH') {
+    if (!authorised(req)) return json(res, 401, { error: 'unauthorised' });
+    const userId = requestUserId(req);
+    if (!userId) return json(res, 401, { error: 'missing_user' });
+    try {
+      const body = await readJsonBody(req);
+      return json(res, 200, await updateWebsiteMemberProfile(guild, userId, body));
+    } catch (error) {
+      const normalised = normaliseWebsiteBridgeError(error);
+      return json(res, normalised.status, normalised.body);
+    }
+  }
+
+  const state = await readGuildState(guild.id).catch(() => null);
   if (!state) return notFound(res);
-  if (url.pathname === '/api/carries') return json(res, 200, Object.values(state.carryTickets ?? {}));
+
+  if (url.pathname === '/api/carries/mine' && req.method === 'GET') {
+    if (!authorised(req)) return json(res, 401, { error: 'unauthorised' });
+    const userId = requestUserId(req);
+    if (!userId) return json(res, 401, { error: 'missing_user' });
+    const tickets = Object.values(state.carryTickets ?? {})
+      .filter((ticket) => ticket.userId === userId)
+      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+      .map((ticket) => publicTicket(guild, ticket));
+    return json(res, 200, tickets);
+  }
+
+  if (url.pathname === '/api/carries') {
+    const tickets = Object.values(state.carryTickets ?? {})
+      .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt))
+      .map((ticket) => publicTicket(guild, ticket));
+    return json(res, 200, tickets);
+  }
   if (url.pathname === '/api/houses') return json(res, 200, state.kingdom?.houses ?? {});
   if (url.pathname === '/api/marketplace') return json(res, 200, Object.values(state.marketV4?.listings ?? {}).filter((x) => x.status === 'active'));
   if (url.pathname === '/api/leaderboard') {
@@ -136,7 +262,7 @@ export async function startPlatformApi(client) {
   const port = Number(process.env.API_PORT || 8787);
   server = http.createServer((req, res) => handler(client, req, res).catch((error) => {
     console.error('Platform API error:', error);
-    json(res, 500, { error: 'internal_error' });
+    json(res, Number(error?.status) || 500, { error: error?.message || 'internal_error' });
   }));
   wss = new WebSocketServer({ server, path: '/ws' });
   wss.on('connection', async (socket, request) => {
