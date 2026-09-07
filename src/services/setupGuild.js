@@ -58,6 +58,13 @@ function firstChannelByName(guild, name, type) {
   return guild.channels.cache.find((channel) => channel.name === name && (!type || channel.type === type));
 }
 
+function existingManagedChannel(guild, id, type) {
+  if (!id) return null;
+  const channel = guild.channels.cache.get(id);
+  if (!channel) return null;
+  return type === undefined || channel.type === type ? channel : null;
+}
+
 function roleAccessOverwrites(guild, roles, keys, { readOnly = false } = {}) {
   const overwrites = [{ id: guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] }];
   for (const key of [...new Set([...STAFF_KEYS, ...keys])]) {
@@ -171,6 +178,9 @@ export async function setupGuild(guild, onProgress = async () => {}) {
   await guild.channels.fetch();
   const state = await readGuildState(guild.id);
   state.setup ??= {};
+  state.setup.roles ??= {};
+  state.setup.categories ??= {};
+  state.setup.channels ??= {};
   state.security ??= { blockUnauthorizedBots: true };
 
   const summary = {
@@ -186,7 +196,7 @@ export async function setupGuild(guild, onProgress = async () => {}) {
 
   await onProgress('Creating and repairing Kingdom roles…');
   for (const definition of [...ROLE_BLUEPRINT].reverse()) {
-    let role = firstRoleByName(guild, definition.name);
+    let role = guild.roles.cache.get(state.setup.roles[definition.key]) ?? firstRoleByName(guild, definition.name);
     const desiredPermissions = rolePermissions(definition.permissions);
     if (!role) {
       role = await guild.roles.create({
@@ -218,9 +228,10 @@ export async function setupGuild(guild, onProgress = async () => {}) {
   }
 
   const categories = {};
-  await onProgress('Raising the Kingdom categories…');
+  await onProgress('Reusing and repairing Kingdom categories…');
   for (const definition of CATEGORY_BLUEPRINT) {
-    let category = firstChannelByName(guild, definition.name, ChannelType.GuildCategory);
+    let category = existingManagedChannel(guild, state.setup.categories[definition.key], ChannelType.GuildCategory)
+      ?? firstChannelByName(guild, definition.name, ChannelType.GuildCategory);
     const overwrites = definition.privateFor ? privateCategoryOverwrites(guild, roles, definition.privateFor) : undefined;
     if (!category) {
       category = await guild.channels.create({
@@ -237,13 +248,14 @@ export async function setupGuild(guild, onProgress = async () => {}) {
   }
 
   const channels = {};
-  await onProgress('Building channels and permissions…');
+  await onProgress('Reusing channels and repairing permissions…');
   for (const definition of CHANNEL_BLUEPRINT) {
     const targetType = channelTypeMap[definition.type];
     const resolvedType = definition.type === 'announcement' && !guild.features.includes('COMMUNITY')
       ? ChannelType.GuildText
       : targetType;
-    let channel = firstChannelByName(guild, definition.name, resolvedType);
+    let channel = existingManagedChannel(guild, state.setup.channels[definition.key], resolvedType)
+      ?? firstChannelByName(guild, definition.name, resolvedType);
     const category = categories[definition.category];
     const categoryPrivate = CATEGORY_BLUEPRINT.find((c) => c.key === definition.category)?.privateFor;
     const overwrites = definition.accessFor?.length
@@ -289,7 +301,7 @@ export async function setupGuild(guild, onProgress = async () => {}) {
   summary.panelsCreated += Number(await ensurePanel(channels.quests, 'quests', questPanel(), state));
 
   state.setup.completedAt = new Date().toISOString();
-  state.setup.version = 2;
+  state.setup.version = Math.max(Number(state.setup.version ?? 0), 2);
   await writeGuildState(guild.id, state);
   return { summary, roles, categories, channels, state };
 }
