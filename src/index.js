@@ -7,9 +7,7 @@ import {
   MessageFlags,
   Partials
 } from 'discord.js';
-import { execute as executeSetup } from './commands/setup.js';
-import { execute as executeSetup2 } from './commands/setup2.js';
-import { execute as executeSetup3 } from './commands/setup3.js';
+import { execute as executeUiUpgrade } from './commands/uipgrade.js';
 import { execute as executeMod } from './commands/mod.js';
 import { handleApplicationLinkButton, handleApplicationLinkModal } from './services/applicationLinks.js';
 import {
@@ -188,16 +186,8 @@ client.on(Events.MessageReactionRemove, async (reaction, user) => {
 client.on(Events.InteractionCreate, async (interaction) => {
   try {
     if (interaction.isChatInputCommand()) {
-      if (interaction.commandName === 'setup') {
-        await executeSetup(interaction);
-        return;
-      }
-      if (interaction.commandName === 'setup2') {
-        await executeSetup2(interaction);
-        return;
-      }
-      if (interaction.commandName === 'setup3') {
-        await executeSetup3(interaction);
+      if (interaction.commandName === 'uipgrade') {
+        await executeUiUpgrade(interaction);
         return;
       }
       if (interaction.commandName === 'mod') {
@@ -235,9 +225,9 @@ client.on(Events.InteractionCreate, async (interaction) => {
         const handled = await handleCarryTicketButton(interaction);
         if (handled !== false) return;
       }
-      if (interaction.customId.startsWith('kc2:apps:')) {
-        await handleApplicationLinkButton(interaction);
-        return;
+      if (interaction.customId.startsWith('kc2:apps:') || interaction.customId.startsWith('kc:app:review:')) {
+        const handled = await handleApplicationLinkButton(interaction);
+        if (handled !== false) return;
       }
       if (interaction.customId.startsWith('kc2:tickets:')) {
         const handled = await handleTicketControlButton(interaction);
