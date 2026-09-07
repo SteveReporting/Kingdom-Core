@@ -173,7 +173,9 @@ async function hardenGuild(guild) {
   return changes;
 }
 
-export async function setupGuild(guild, onProgress = async () => {}) {
+export async function setupGuild(guild, onProgress = async () => {}, options = {}) {
+  const preserveExistingChannelParents = Boolean(options.preserveExistingChannelParents);
+
   await guild.roles.fetch();
   await guild.channels.fetch();
   const state = await readGuildState(guild.id);
@@ -272,7 +274,7 @@ export async function setupGuild(guild, onProgress = async () => {}) {
       });
       summary.channelsCreated++;
     } else {
-      if (category && channel.parentId !== category.id) {
+      if (!preserveExistingChannelParents && category && channel.parentId !== category.id) {
         await channel.setParent(category.id, { lockPermissions: false }).catch(() => null);
       }
       if (overwrites) {
