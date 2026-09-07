@@ -24,14 +24,15 @@ import {
   runCommunityMaintenance
 } from './services/communityV4.js';
 import { startExternalInfra } from './services/externalInfraV4.js';
+import { installGatewayHealth } from './services/gatewayHealth.js';
 import { handleButton, handleModal, handleSelect } from './services/interactions.js';
 import { handleLevelReactionAdd, handleLevelReactionRemove } from './services/levelRoles.js';
+import { runHeartbeatSafePlatformMaintenance } from './services/maintenanceV5Safe.js';
 import { recordAuditLedgerEventV4, runPlatformAutomationV4 } from './services/platformV4Automation.js';
 import {
   handlePlatformV4CompleteButton,
   handlePlatformV4CompleteModal,
-  handlePlatformV4CompleteSelect,
-  runPlatformV4CompleteMaintenance
+  handlePlatformV4CompleteSelect
 } from './services/platformV4Complete.js';
 import {
   handleV4Button,
@@ -69,12 +70,44 @@ const client = new Client({
   partials: [Partials.Message, Partials.Channel, Partials.Reaction, Partials.User]
 });
 
+installGatewayHealth(client, {
+  checkEveryMs: 30_000,
+  startupGraceMs: 90_000,
+  unhealthyRestartMs: 120_000
+});
+
+const maintenanceInFlight = new Set();
+
+async function runStep(label, fn) {
+  const started = Date.now();
+  try {
+    await fn();
+    const elapsed = Date.now() - started;
+    if (elapsed >= 5_000) console.log(`[Maintenance] ${label} completed in ${elapsed}ms.`);
+  } catch (error) {
+    console.error(`[Maintenance] ${label} failed:`, error);
+  }
+}
+
 async function runMaintenance(guild) {
-  await updateServerStats(guild).catch(() => null);
-  await runV4Maintenance(guild).catch(() => null);
-  await runPlatformAutomationV4(guild).catch(() => null);
-  await runPlatformV4CompleteMaintenance(guild).catch(() => null);
-  await runCommunityMaintenance(guild).catch(() => null);
+  if (maintenanceInFlight.has(guild.id)) {
+    console.warn(`[Maintenance] skipped overlapping pass for ${guild.name}.`);
+    return;
+  }
+
+  maintenanceInFlight.add(guild.id);
+  const started = Date.now();
+  try {
+    await runStep('server-stats', () => updateServerStats(guild));
+    await runStep('v4-runtime', () => runV4Maintenance(guild));
+    await runStep('platform-automation', () => runPlatformAutomationV4(guild));
+    await runStep('heartbeat-safe-v5', () => runHeartbeatSafePlatformMaintenance(guild));
+    await runStep('community', () => runCommunityMaintenance(guild));
+  } finally {
+    maintenanceInFlight.delete(guild.id);
+    const elapsed = Date.now() - started;
+    if (elapsed >= 5_000) console.log(`[Maintenance] full pass for ${guild.name} completed in ${elapsed}ms.`);
+  }
 }
 
 client.once(Events.ClientReady, (readyClient) => {
@@ -84,7 +117,11 @@ client.once(Events.ClientReady, (readyClient) => {
     status: 'online'
   });
 
-  for (const guild of readyClient.guilds.cache.values()) runMaintenance(guild).catch(() => null);
+  // Give the first Discord heartbeat time to complete before starting heavier work.
+  const initial = setTimeout(() => {
+    for (const guild of readyClient.guilds.cache.values()) runMaintenance(guild).catch(() => null);
+  }, 15_000);
+  initial.unref?.();
 
   startPlatformApi(readyClient).catch((error) => console.error('Platform API startup error:', error));
   startExternalInfra(readyClient).catch((error) => console.error('External infrastructure startup error:', error));
@@ -97,7 +134,10 @@ client.once(Events.ClientReady, (readyClient) => {
 
 client.on(Events.GuildMemberAdd, async (member) => {
   await updateServerStats(member.guild).catch(() => null);
-  await trackPlatformEvent(member.guild.id, 'member.joined', { userId: member.id, accountCreatedAt: member.user.createdAt.toISOString() }).catch(() => null);
+  await trackPlatformEvent(member.guild.id, 'member.joined', {
+    userId: member.id,
+    accountCreatedAt: member.user.createdAt.toISOString()
+  }).catch(() => null);
 });
 
 client.on(Events.GuildMemberRemove, async (member) => {
@@ -271,4 +311,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
   }
 });
 
-client.login(token);
+client.login(token).catch((error) => {
+  console.error('Discord login failed:', error);
+  process.exit(1);
+});
