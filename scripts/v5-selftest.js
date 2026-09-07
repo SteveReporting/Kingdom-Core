@@ -48,24 +48,7 @@ if (missingFiles.length) {
   process.exit(1);
 }
 
-const setup5Source = await fs.readFile(path.join(root, 'src', 'commands', 'setup5.js'), 'utf8');
-const setupGuildSource = await fs.readFile(path.join(root, 'src', 'services', 'setupGuild.js'), 'utf8');
-if (setup5Source.includes('compactGuildStructure') || setup5Source.includes('seedCompactCategoryAliases')) {
-  console.error('/setup5 must not import or run category compaction/deletion logic.');
-  process.exit(1);
-}
-if (!setup5Source.includes('captureGuildStructure') || !setup5Source.includes('restoreGuildStructure')) {
-  console.error('/setup5 is missing its channel/category structure guard.');
-  process.exit(1);
-}
-if (!setupGuildSource.includes('preserveExistingChannelParents')) {
-  console.error('setupGuild no longer exposes the preserveExistingChannelParents safeguard required by /setup5.');
-  process.exit(1);
-}
-
 await Promise.all([
-  import('../src/commands/setup5.js'),
-  import('../src/services/preserveGuildStructure.js'),
   import('../src/services/platformV5.js'),
   import('../src/services/platformV4Complete.js'),
   import('../src/services/platformV4Automation.js'),
@@ -73,4 +56,4 @@ await Promise.all([
   import('../src/services/securityV4.js')
 ]);
 
-console.log(`Kingdom Core v5 self-test passed: ${expected.length} approved roadmap systems mapped, setup5 imports resolved, and structure-preservation guard verified.`);
+console.log(`Kingdom Core v5 self-test passed: ${expected.length} approved roadmap systems remain mapped; the retired /setup5 command is no longer required.`);
