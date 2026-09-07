@@ -11,15 +11,17 @@ import {
 import {
   APPROVED_V10_NUMBERS,
   APPROVED_V10_SYSTEMS,
+  EXCLUDED_V10_NUMBERS,
   V10_DOMAINS,
   V10_ENGINE_KEYS,
-  V10_FEATURE_COUNT
+  V10_FEATURE_COUNT,
+  V10_HIGHEST_SYSTEM
 } from '../config/approvedSystemsV10.js';
 import { BRAND, STAFF_KEYS } from '../config/blueprint.js';
 import { readGuildState, writeGuildState } from '../storage/store.js';
 
 export const PLATFORM_V10_SCHEMA = 10;
-export const PLATFORM_V10_RELEASE = '10.0-realm-os';
+export const PLATFORM_V10_RELEASE = '10.1-realm-intelligence';
 
 const PUBLIC_DOMAIN_KEYS = new Set([
   'carryOperations',
@@ -47,7 +49,8 @@ const HUB_CANDIDATES = {
   knowledge: ['faq', 'guides', 'help'],
   ai: ['staffControlPremiumV4', 'platformV5Control', 'council'],
   webGrowth: ['staffControlPremiumV4', 'announcements', 'general'],
-  legacyPlatform: ['platformV5Control', 'staffControlPremiumV4', 'council']
+  legacyPlatform: ['platformV5Control', 'staffControlPremiumV4', 'council'],
+  realmIntelligence: ['staffControlPremiumV4', 'platformV5Control', 'council']
 };
 
 function bytesToMb(value) {
@@ -113,12 +116,17 @@ function staffOverwrites(guild, state) {
 }
 
 async function ensureStaffHub(guild, state) {
+  state.setup ??= {};
+  state.setup.channels ??= {};
   const existing = findHub(guild, state, ['staffControlPremiumV4', 'platformV5Control', 'council', 'staffChat']);
   if (existing) return { channel: existing, created: false };
 
   const parentId = state.setup?.categories?.staff ?? state.setup?.categories?.security ?? null;
   const byName = guild.channels.cache.find((channel) => textChannel(channel) && channel.name === '👑・kingdom-os');
-  if (byName) return { channel: byName, created: false };
+  if (byName) {
+    state.setup.channels.kingdomOsV10 = byName.id;
+    return { channel: byName, created: false };
+  }
 
   const channel = await guild.channels.create({
     name: '👑・kingdom-os',
@@ -195,12 +203,15 @@ function ensureV10State(state) {
   state.platform.updatedAt = new Date().toISOString();
   state.platform.migrations ??= [];
   if (!state.platform.migrations.includes('v10-realm-os')) state.platform.migrations.push('v10-realm-os');
+  if (!state.platform.migrations.includes('v10.1-realm-intelligence')) state.platform.migrations.push('v10.1-realm-intelligence');
 
   state.platform.v10 ??= {};
   const v10 = state.platform.v10;
   v10.installedAt ??= new Date().toISOString();
   v10.updatedAt = new Date().toISOString();
   v10.approvedCount = V10_FEATURE_COUNT;
+  v10.highestSystem = V10_HIGHEST_SYSTEM;
+  v10.excludedNumbers = [...EXCLUDED_V10_NUMBERS];
   v10.approvedNumbers = [...APPROVED_V10_NUMBERS];
   v10.domains = Object.fromEntries(V10_DOMAINS.map((domain) => [domain.key, {
     label: domain.label,
@@ -228,7 +239,8 @@ function ensureV10State(state) {
     panelRefreshMinIntervalMs: 600_000,
     AIAllowed: false,
     pauseNonEssentialOnHighPressure: true,
-    maxActiveDashboardRefreshes: 1
+    maxActiveDashboardRefreshes: 1,
+    ...(v10.resourcePolicy ?? {})
   };
   v10.emergencySwitches ??= {
     carries: false,
@@ -272,38 +284,42 @@ function staffPayload(state) {
   const mapped = Object.values(v10.hubs ?? {}).filter(Boolean).length;
   const domainLines = V10_DOMAINS.map((domain) => {
     const enabled = domain.key === 'ai' ? false : true;
-    return `${enabled ? '✅' : '⏸️'} **${domain.label}** · #${domain.start}–${domain.end}`;
+    const excluded = domain.key === 'realmIntelligence' ? ' · #385 excluded' : '';
+    return `${enabled ? '✅' : '⏸️'} **${domain.label}** · #${domain.start}–${domain.end}${excluded}`;
   });
 
   const embed = new EmbedBuilder()
     .setColor(resources.pressure === 'critical' ? 0xed4245 : BRAND.color)
     .setTitle('👑 KINGDOM CORE v10 • Realm Operating System')
     .setDescription([
-      '**370 approved systems, converged into shared engines and the channels the Kingdom already uses.**',
-      'v10 does not create a channel per feature. The control plane routes features into existing carry, Knight, House, economy, event, support, staff, security and analytics surfaces.',
+      `**${V10_FEATURE_COUNT} approved systems through #${V10_HIGHEST_SYSTEM}, converged into shared engines and the channels the Kingdom already uses.**`,
+      'v10 does not create a channel per feature. The control plane routes features into existing carry, Knight, House, economy, event, support, staff, security, analytics and Realm Intelligence surfaces.',
       '',
       ...domainLines
     ].join('\n'))
     .addFields(
-      { name: 'Roadmap', value: `**${v10.approvedCount ?? 370}/370** approved`, inline: true },
+      { name: 'Roadmap', value: `**${v10.approvedCount ?? V10_FEATURE_COUNT}/${V10_FEATURE_COUNT}** approved`, inline: true },
       { name: 'Shared Engines', value: `**${Object.keys(v10.engines ?? {}).length}**`, inline: true },
       { name: 'Mapped Hubs', value: `**${mapped}/${V10_DOMAINS.length}**`, inline: true },
       { name: 'Server Structure', value: `**${structure.categories ?? 0}** categories · **${(structure.text ?? 0) + (structure.announcements ?? 0)}** text surfaces · **${structure.voice ?? 0}** voice`, inline: false },
       { name: 'Duplicate Safety', value: `**${structure.exactDuplicateGroups ?? 0}** exact-name groups · **${structure.safeEmptyDuplicateCandidates ?? 0}** safe empty candidates · **${structure.populatedDuplicates ?? 0}** populated duplicates preserved`, inline: false },
       { name: 'Resource Guard', value: `${pressureEmoji(resources.pressure)} **${resources.pressure?.toUpperCase() ?? 'NORMAL'}** · ${resources.processRssMb ?? '?'} MB bot RSS · ${resources.freeMemoryMb ?? '?'} MB host free · load ${resources.load1 ?? '?'}`, inline: false },
-      { name: 'AI', value: '⏸️ Installed as an optional adapter but **disabled** while the small VPS is being stabilised.', inline: false }
+      { name: 'Approval', value: '**#385 Role Compression is not installed.** AI remains installed-but-disabled while the small VPS is stabilised.', inline: false }
     )
-    .setFooter({ text: 'Kingdom Core v10 • One control plane, shared engines, minimal channel sprawl.' })
+    .setFooter({ text: 'Kingdom Core v10.1 • Realm Intelligence • Minimal channel sprawl.' })
     .setTimestamp();
 
-  const row = new ActionRowBuilder().addComponents(
+  const row1 = new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId('kc10:status').setLabel('Realm Status').setEmoji('👑').setStyle(ButtonStyle.Primary),
     new ButtonBuilder().setCustomId('kc10:structure').setLabel('Structure').setEmoji('🏰').setStyle(ButtonStyle.Secondary),
     new ButtonBuilder().setCustomId('kc10:resources').setLabel('Resources').setEmoji('💓').setStyle(ButtonStyle.Success),
-    new ButtonBuilder().setCustomId('kc10:domains').setLabel('370 Systems').setEmoji('🧭').setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder().setCustomId('kc10:refresh').setLabel('Refresh').setEmoji('🔄').setStyle(ButtonStyle.Secondary)
+    new ButtonBuilder().setCustomId('kc10:domains').setLabel(`${V10_FEATURE_COUNT} Systems`).setEmoji('🧭').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId('kc10:intelligence').setLabel('Intelligence').setEmoji('🧠').setStyle(ButtonStyle.Primary)
   );
-  return { embeds: [embed], components: [row], allowedMentions: { parse: [] } };
+  const row2 = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId('kc10:refresh').setLabel('Refresh Control Plane').setEmoji('🔄').setStyle(ButtonStyle.Secondary)
+  );
+  return { embeds: [embed], components: [row1, row2], allowedMentions: { parse: [] } };
 }
 
 function publicPayload(state) {
@@ -318,11 +334,11 @@ function publicPayload(state) {
       'Use the controls below instead of hunting through dozens of commands. The system automatically routes you to the correct Kingdom surface.'
     ].join('\n'))
     .addFields(
-      { name: 'Platform', value: `**${v10.approvedCount ?? 370}** approved systems`, inline: true },
+      { name: 'Platform', value: `**${v10.approvedCount ?? V10_FEATURE_COUNT}** approved systems`, inline: true },
       { name: 'Operating Mode', value: resources.pressure === 'normal' ? '🟢 Normal' : `${pressureEmoji(resources.pressure)} Resource Guard`, inline: true },
       { name: 'AI', value: '⏸️ Temporarily disabled', inline: true }
     )
-    .setFooter({ text: 'Kingdom Carries • Powered by Kingdom Core v10' })
+    .setFooter({ text: 'Kingdom Carries • Powered by Kingdom Core v10.1' })
     .setTimestamp();
 
   const row = new ActionRowBuilder().addComponents(
@@ -421,7 +437,8 @@ export async function runV10Maintenance(guild) {
         : 'normal';
 
   const last = new Date(state.platform.v10.lastPanelRefreshAt ?? 0).getTime();
-  const minimum = resources.pressure === 'normal' ? 600_000 : 900_000;
+  const configured = Number(state.platform.v10.resourcePolicy?.panelRefreshMinIntervalMs ?? 600_000);
+  const minimum = Math.max(configured, resources.pressure === 'normal' ? 600_000 : 900_000);
   if (resources.pressure !== 'critical' && Date.now() - last >= minimum) {
     await refreshV10Panels(guild, state);
   }
@@ -434,7 +451,29 @@ function ephemeral(content) {
 }
 
 function domainSummary() {
-  return V10_DOMAINS.map((domain) => `• **#${domain.start}–${domain.end}** ${domain.label} · \`${domain.engine}\``).join('\n');
+  return V10_DOMAINS.map((domain) => {
+    const note = domain.key === 'realmIntelligence' ? ' · **#385 excluded**' : '';
+    return `• **#${domain.start}–${domain.end}** ${domain.label} · \`${domain.engine}\`${note}`;
+  }).join('\n');
+}
+
+function intelligenceSummary(state) {
+  const ri = state.realmIntelligenceV10 ?? {};
+  const pulse = ri.lastPulse ?? {};
+  const graph = pulse.graph ?? {};
+  const capacity = pulse.capacity ?? ri.capacityModel?.latest ?? {};
+  const bottlenecks = pulse.bottlenecks ?? ri.bottlenecks?.latest ?? [];
+  const top = bottlenecks[0];
+  return [
+    '🧠 **Realm Intelligence**',
+    `Kingdom Graph: **${graph.nodes ?? Object.keys(ri.graph?.nodes ?? {}).length} nodes / ${graph.edges ?? Object.keys(ri.graph?.edges ?? {}).length} edges**`,
+    `Queue fairness: **${ri.fairness?.lastScore ?? 100}/100**`,
+    `Available Knights: **${capacity.availableKnights ?? 0}** · estimated throughput: **${capacity.estimatedCarriesPerHour ?? 0}/hr**`,
+    `Top bottleneck: **${top?.cause ?? 'none detected'}**${top?.confidence ? ` (${top.confidence}% confidence)` : ''}`,
+    `Open anomalies: **${pulse.anomalies ?? 0}** · integrity findings: **${pulse.integrityFindings ?? ri.integrity?.findings?.length ?? 0}**`,
+    `Guarded Autopilot: **${ri.autopilot?.enabled === false ? 'OFF' : 'ON'}** · destructive actions always require approval`,
+    'Role Compression #385: **not installed**'
+  ].join('\n');
 }
 
 export async function handleV10Button(interaction) {
@@ -445,7 +484,7 @@ export async function handleV10Button(interaction) {
 
   if (interaction.customId === 'kc10:status') {
     const r = v10.resources ?? getV10ResourceSnapshot();
-    return interaction.reply(ephemeral(`👑 **Kingdom Core v10**\n370/370 systems registered across ${Object.keys(v10.domains ?? {}).length} domains.\nMode: **${v10.runtimeMode ?? 'normal'}**\nResource pressure: **${r.pressure}**\nAI: **disabled**`));
+    return interaction.reply(ephemeral(`👑 **Kingdom Core v10.1**\n${v10.approvedCount ?? V10_FEATURE_COUNT}/${V10_FEATURE_COUNT} approved systems through #${V10_HIGHEST_SYSTEM}; #385 excluded.\nDomains: **${Object.keys(v10.domains ?? {}).length}**\nMode: **${v10.runtimeMode ?? 'normal'}**\nResource pressure: **${r.pressure}**\nAI: **disabled**`));
   }
   if (interaction.customId === 'kc10:structure') {
     const s = v10.structure ?? {};
@@ -456,19 +495,22 @@ export async function handleV10Button(interaction) {
     return interaction.reply(ephemeral(`💓 **Resource Guard**\nPressure: **${r.pressure}**\nHost memory: **${r.freeMemoryMb} MB free / ${r.totalMemoryMb} MB total**\nKingdom Core RSS: **${r.processRssMb} MB**\n1m load: **${r.load1}**\nLow-memory VM policy: **${r.lowMemoryVm ? 'ON' : 'OFF'}**\nAI remains disabled.`));
   }
   if (interaction.customId === 'kc10:domains') {
-    return interaction.reply(ephemeral(`🧭 **370-system v10 roadmap**\n${domainSummary()}`));
+    return interaction.reply(ephemeral(`🧭 **${V10_FEATURE_COUNT}-system approved v10 roadmap through #${V10_HIGHEST_SYSTEM}**\n${domainSummary()}`));
+  }
+  if (interaction.customId === 'kc10:intelligence') {
+    return interaction.reply(ephemeral(intelligenceSummary(state)));
   }
   if (interaction.customId === 'kc10:refresh') {
     if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) return interaction.reply(ephemeral('Administrator permission is required to refresh the v10 control plane.'));
     await guildRefresh(interaction.guild, state);
-    return interaction.reply(ephemeral('🔄 Kingdom Core v10 control surfaces refreshed.'));
+    return interaction.reply(ephemeral('🔄 Kingdom Core v10.1 control surfaces refreshed.'));
   }
   if (interaction.customId === 'kc10:member') {
     return interaction.reply(ephemeral('🪪 **My Kingdom** is routed through the existing member dashboard/passport system. Your progression, House, quests, achievements and contribution state stay in one profile instead of separate channels.'));
   }
   if (interaction.customId === 'kc10:carries') {
     const waiting = Object.values(state.carryPartiesV3?.parties ?? {}).filter((party) => !['completed', 'cancelled', 'closed'].includes(party.status)).length;
-    return interaction.reply(ephemeral(`⚔️ **Carry Operations**\nActive tracked parties: **${waiting}**\nSmart matching, ETA, recovery, no-show and coverage features share the existing carry board/live queue surfaces.`));
+    return interaction.reply(ephemeral(`⚔️ **Carry Operations**\nActive tracked parties: **${waiting}**\nSmart matching, ETA, recovery, no-show, fairness, standby and capacity features share the existing carry board/live queue surfaces.`));
   }
   if (interaction.customId === 'kc10:events') {
     const events = Object.values(state.eventsV4?.events ?? {}).filter((event) => !['completed', 'cancelled'].includes(event.status)).length;
