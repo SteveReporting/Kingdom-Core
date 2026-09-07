@@ -8,8 +8,7 @@ import {
   Partials
 } from 'discord.js';
 import { execute as executeSetup } from './commands/setup.js';
-import { execute as executeSetup5 } from './commands/setup5.js';
-import { execute as executeSetup10 } from './commands/setup10.js';
+import { execute as executeSetup2 } from './commands/setup2.js';
 import { execute as executeMod } from './commands/mod.js';
 import { handleApplicationLinkButton, handleApplicationLinkModal } from './services/applicationLinks.js';
 import {
@@ -124,7 +123,6 @@ client.once(Events.ClientReady, (readyClient) => {
     status: 'online'
   });
 
-  // Give the first Discord heartbeat time to complete before starting heavier work.
   const initial = setTimeout(() => {
     for (const guild of readyClient.guilds.cache.values()) runMaintenance(guild).catch(() => null);
   }, 15_000);
@@ -193,12 +191,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
         await executeSetup(interaction);
         return;
       }
-      if (interaction.commandName === 'setup5') {
-        await executeSetup5(interaction);
-        return;
-      }
-      if (interaction.commandName === 'setup10') {
-        await executeSetup10(interaction);
+      if (interaction.commandName === 'setup2') {
+        await executeSetup2(interaction);
         return;
       }
       if (interaction.commandName === 'mod') {
