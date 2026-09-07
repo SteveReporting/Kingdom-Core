@@ -1,4 +1,6 @@
-export const V10_FEATURE_COUNT = 370;
+export const V10_HIGHEST_SYSTEM = 390;
+export const EXCLUDED_V10_NUMBERS = Object.freeze([385]);
+export const V10_FEATURE_COUNT = V10_HIGHEST_SYSTEM - EXCLUDED_V10_NUMBERS.length;
 
 export const V10_DOMAINS = Object.freeze([
   { key: 'carryOperations', start: 1, end: 41, label: 'Carry Operations', engine: 'carry-orchestrator', capabilities: ['matchmaking','party-building','multi-queue','fairness','ETA','instant-fill','overflow','regional-routing','specialists','difficulty','adaptive-parties','recovery','handoffs','checkpoints','timers','benchmarks','stall-detection','no-show-replacement','AFK-protection','grace-rejoin','readiness','launch','completion-proof','disputes','quality','feedback','reliability','priority-rules','abuse-detection','forecasting','coverage','shifts','surge','event-mode','rotations'] },
@@ -15,10 +17,36 @@ export const V10_DOMAINS = Object.freeze([
   { key: 'knowledge', start: 281, end: 290, label: 'Knowledge & Dungeon Quest Help', engine: 'knowledge-engine', capabilities: ['knowledge-base','context-help','build-advisor','prep-checklist','progression-advisor','item-comparison','guide-library','guide-verification','outdated-guide-detection','FAQ-analytics'] },
   { key: 'ai', start: 291, end: 300, label: 'Optional AI Layer', engine: 'ai-adapter', capabilities: ['helpdesk','carry-assistant','ticket-summary','application-assistant','security-explainer','event-writer','knowledge-search','build-assistant','resource-governor','provider-abstraction'] },
   { key: 'webGrowth', start: 301, end: 341, label: 'Web, Integrations, Partnerships & Growth', engine: 'integration-engine', capabilities: ['status-page','account-linking','web-queue','operations-map','knight-portal','staff-portal','member-passport','house-pages','web-market','web-calendar','transparency-page','discord-oauth','role-sync','websocket','PWA','personal-home','deep-links','QR-check-in','creator-portal','partnerships','cross-guild-events','partner-reputation','inter-guild-tournaments','overflow-partners','alliance-calendar','kingdom-api','outbound-webhooks','integration-permissions','integration-audit','announcement-sync','creator-pages','link-shortener','campaign-codes','referral-trees','milestones','time-capsules','realm-records','record-alerts','kingdom-newspaper','personal-year-review','guild-year-review'] },
-  { key: 'legacyPlatform', start: 342, end: 370, label: 'Legacy, Control Plane & Infrastructure', engine: 'platform-engine', capabilities: ['legacy-archive','founding-timeline','system-generations','ops-scoreboard','before-after-analytics','crown-control-plane','emergency-switches','maintenance-mode','read-only-mode','data-export','backups','backup-verification','disaster-recovery','dependency-map','graceful-degradation','offline-buffer','idempotent-migrations','schema-migrations','config-diff','dry-run','approval-migrations','startup-self-test','safe-mode','PM2-circuit-breaker','memory-monitor','CPU-monitor','adaptive-maintenance','resource-budgets','migration-readiness'] }
+  { key: 'legacyPlatform', start: 342, end: 370, label: 'Legacy, Control Plane & Infrastructure', engine: 'platform-engine', capabilities: ['legacy-archive','founding-timeline','system-generations','ops-scoreboard','before-after-analytics','crown-control-plane','emergency-switches','maintenance-mode','read-only-mode','data-export','backups','backup-verification','disaster-recovery','dependency-map','graceful-degradation','offline-buffer','idempotent-migrations','schema-migrations','config-diff','dry-run','approval-migrations','startup-self-test','safe-mode','PM2-circuit-breaker','memory-monitor','CPU-monitor','adaptive-maintenance','resource-budgets','migration-readiness'] },
+  { key: 'realmIntelligence', start: 371, end: 390, label: 'Realm Intelligence & Operations', engine: 'realm-intelligence', capabilities: ['kingdom-graph','universal-member-context','operational-anomaly-detection','queue-fairness-auditor','carry-capacity-reservation','standby-knight-network','service-recovery-director','policy-simulation','shadow-mode','permission-compiler','change-impact-analyzer','incident-commander','data-integrity-engine','identity-resolution','dynamic-service-routing','guild-capacity-model','bottleneck-attribution','kingdom-command-search','guarded-realm-autopilot'] }
 ]);
 
-export const APPROVED_V10_NUMBERS = Object.freeze(Array.from({ length: V10_FEATURE_COUNT }, (_, index) => index + 1));
+const EXPLICIT_SYSTEM_NAMES = Object.freeze({
+  371: 'Kingdom Graph',
+  372: 'Universal Member Context',
+  373: 'Operational Anomaly Detection',
+  374: 'Queue Fairness Auditor',
+  375: 'Carry Capacity Reservation',
+  376: 'Standby Knight Network',
+  377: 'Service Recovery Director',
+  378: 'Policy Simulation Engine',
+  379: 'Shadow Mode',
+  380: 'Permission Compiler',
+  381: 'Change Impact Analyzer',
+  382: 'Kingdom Incident Commander',
+  383: 'Data Integrity Engine',
+  384: 'Identity Resolution Engine',
+  386: 'Dynamic Service Routing',
+  387: 'Guild Capacity Model',
+  388: 'Bottleneck Attribution',
+  389: 'Kingdom Command Search',
+  390: 'Realm Autopilot — Guarded Operations'
+});
+
+export const APPROVED_V10_NUMBERS = Object.freeze(
+  Array.from({ length: V10_HIGHEST_SYSTEM }, (_, index) => index + 1)
+    .filter((number) => !EXCLUDED_V10_NUMBERS.includes(number))
+);
 
 export function v10DomainFor(number) {
   return V10_DOMAINS.find((domain) => number >= domain.start && number <= domain.end) ?? null;
@@ -29,7 +57,7 @@ export const APPROVED_V10_SYSTEMS = Object.freeze(Object.fromEntries(
     const domain = v10DomainFor(number);
     return [number, {
       number,
-      name: `${domain?.label ?? 'Kingdom Core'} • System ${number}`,
+      name: EXPLICIT_SYSTEM_NAMES[number] ?? `${domain?.label ?? 'Kingdom Core'} • System ${number}`,
       domain: domain?.key ?? 'unknown',
       engine: domain?.engine ?? 'platform-engine',
       implementation: `shared-engine:${domain?.engine ?? 'platform-engine'}`,
