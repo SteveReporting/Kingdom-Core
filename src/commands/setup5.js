@@ -4,9 +4,10 @@ import { installCarryPartiesV3 } from '../services/carryPartiesV3.js';
 import { installCommunityV4, runCommunityMaintenance } from '../services/communityV4.js';
 import { enforceSetup2Hierarchy } from '../services/hierarchySetup2.js';
 import { installLevelRoles } from '../services/levelRoles.js';
+import { runHeartbeatSafePlatformMaintenance } from '../services/maintenanceV5Safe.js';
 import { installPlatformV4 } from '../services/platformV4.js';
 import { runPlatformAutomationV4 } from '../services/platformV4Automation.js';
-import { installPlatformV4Complete, runPlatformV4CompleteMaintenance } from '../services/platformV4Complete.js';
+import { installPlatformV4Complete } from '../services/platformV4Complete.js';
 import { runV4Maintenance } from '../services/platformV4Runtime.js';
 import { finalizePlatformV5, installPlatformV5 } from '../services/platformV5.js';
 import { installStatsAndVerification } from '../services/serverStatsVerification.js';
@@ -68,10 +69,10 @@ export async function execute(interaction) {
   const advanced = await installPlatformV4Complete(interaction.guild);
   const v5 = await installPlatformV5(interaction.guild);
 
-  await progress('09/11 • Running analytics, referrals, market watchlists, workflows and security automation…');
+  await progress('09/11 • Running heartbeat-safe analytics, referrals, watchlists and security automation…');
   await runV4Maintenance(interaction.guild);
   await runPlatformAutomationV4(interaction.guild);
-  await runPlatformV4CompleteMaintenance(interaction.guild);
+  await runHeartbeatSafePlatformMaintenance(interaction.guild);
   await runCommunityMaintenance(interaction.guild);
 
   await progress('10/11 • Enforcing the final role hierarchy after every required role exists…');
@@ -134,6 +135,6 @@ export async function execute(interaction) {
     `• Server stats mode: **${stats.snapshot.exact ? 'exact' : 'cache-based'}**`,
     `• Final role hierarchy verified: **${hierarchy.verified} roles**`,
     '',
-    '✅ `/setup5` is additive/idempotent: it repairs and upgrades the current Kingdom rather than intentionally wiping channels, roles or stored platform data.'
+    '✅ `/setup5` is additive/idempotent and now uses heartbeat-safe maintenance so Discord gateway heartbeats are not starved during the migration.'
   ].join('\n'));
 }
