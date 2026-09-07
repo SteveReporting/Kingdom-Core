@@ -1,9 +1,9 @@
 import { EmbedBuilder, MessageFlags, PermissionFlagsBits, SlashCommandBuilder } from 'discord.js';
-import { ORGANIZER_GROUPS, organiseServerV2 } from '../services/serverOrganizerV2.js';
+import { ORGANIZER_GROUPS, SOFT_CATEGORY_TARGET, organiseServerV2 } from '../services/serverOrganizerV2.js';
 
 export const data = new SlashCommandBuilder()
   .setName('setup2')
-  .setDescription('Analyse the live server and organise channels into a compact category structure.')
+  .setDescription('Analyse the live server and organise channels into a balanced category structure.')
   .addBooleanOption((option) =>
     option
       .setName('preview')
@@ -35,7 +35,7 @@ export async function execute(interaction) {
     const now = Date.now();
     if (now - lastUpdate < 650) return;
     lastUpdate = now;
-    await interaction.editReply(`🏰 **KINGDOM CORE /setup2 • SERVER ORGANISER**\n${text}`).catch(() => null);
+    await interaction.editReply(`🏰 **KINGDOM CORE /setup2 • BALANCED SERVER ORGANISER**\n${text}`).catch(() => null);
   };
 
   const result = await organiseServerV2(interaction.guild, { preview, onProgress: progress });
@@ -44,44 +44,61 @@ export async function execute(interaction) {
     .map((group) => `**${group.name.replace(/━/g, '').trim()}** · ${result.counts[group.key]} channel(s)`)
     .join('\n');
 
+  const largestGroup = ORGANIZER_GROUPS.find((group) => group.key === result.largestCategoryKey);
+  const overloadText = result.overloadedCategoryKeys.length
+    ? result.overloadedCategoryKeys
+        .map((key) => ORGANIZER_GROUPS.find((group) => group.key === key)?.name.replace(/━/g, '').trim() ?? key)
+        .join(', ')
+    : 'None';
+
   const embed = new EmbedBuilder()
     .setColor(0xd4af37)
-    .setTitle(preview ? '🏰 Kingdom Server Organisation Preview' : '🏰 Kingdom Server Organised')
+    .setTitle(preview ? '🏰 Kingdom Server Organisation Preview' : '🏰 Kingdom Server Reorganised')
     .setDescription([
       `Analysed **${result.analysedChannels}** live channels across the whole server.`,
       '',
       preview
         ? 'No channels or categories were changed. Run `/setup2` without `preview:true` to apply this plan.'
-        : 'The server was consolidated into a compact structure. **No channels were deleted.**'
+        : 'The server was redistributed into smaller purpose-built sections. **No channels were deleted.**'
     ].join('\n'))
     .addFields(
       {
-        name: `📂 Category Plan · ${result.categoriesUsed}/${ORGANIZER_GROUPS.length} used`,
+        name: `📂 Balanced Category Plan · ${result.categoriesUsed}/${ORGANIZER_GROUPS.length} used`,
         value: groupLines || 'No movable channels were found.'
       },
       {
         name: preview ? '🔎 Planned Changes' : '✅ Applied Changes',
         value: [
           `Channels ${preview ? 'to move' : 'moved'}: **${result.channelsMoved}**`,
-          `Already in the right place: **${result.channelsAlreadyCorrect}**`,
+          `Already correctly placed: **${result.channelsAlreadyCorrect}**`,
           `Categories ${preview ? 'needed' : 'created'}: **${result.categoriesCreated}**`,
           `Categories ${preview ? 'that would be renamed' : 'renamed'}: **${result.categoriesRenamed}**`,
-          `Empty old categories ${preview ? 'that would be removed' : 'removed'}: **${result.emptyCategoriesRemoved}**`
+          `Categories emptied by this run ${preview ? 'that would be removed' : 'removed'}: **${result.emptyCategoriesRemoved}**`
         ].join('\n'),
         inline: false
+      },
+      {
+        name: '⚖️ Balance Check',
+        value: [
+          `Largest planned section: **${largestGroup?.name.replace(/━/g, '').trim() ?? 'N/A'}** · **${result.largestCategorySize}** channel(s)`,
+          `Preferred soft ceiling: **${SOFT_CATEGORY_TARGET} channels/category**`,
+          `Sections above that ceiling: **${overloadText}**`,
+          `Maximum possible organiser structure: **${ORGANIZER_GROUPS.length} categories**`
+        ].join('\n')
       },
       {
         name: '🛡️ Safety',
         value: [
           '**0 channels deleted**',
-          'Existing channel permission overwrites are preserved when channels move.',
-          `Maximum target structure: **${ORGANIZER_GROUPS.length} categories**.`,
-          result.channelsSkippedCapacity ? `Category-capacity skips: **${result.channelsSkippedCapacity}**` : 'No category-capacity skips.',
+          'Channel permission overwrites are preserved when channels move.',
+          'Existing categories are reused only when their names clearly match the intended section.',
+          'Only categories emptied by this `/setup2` run are eligible for removal.',
+          result.channelsSkippedCapacity ? `Discord category-capacity skips: **${result.channelsSkippedCapacity}**` : 'No category-capacity skips.',
           result.channelsFailed ? `Move failures: **${result.channelsFailed}**` : 'No move failures.'
         ].join('\n')
       }
     )
-    .setFooter({ text: 'Kingdom Core setup2 • organisation only — no platform installation' })
+    .setFooter({ text: 'Kingdom Core setup2 • balanced organisation only — no platform installation' })
     .setTimestamp();
 
   await interaction.editReply({ content: '', embeds: [embed] });
