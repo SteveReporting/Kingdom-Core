@@ -29,7 +29,7 @@ for (const [number, [name, file]] of Object.entries(APPROVED_V4_SYSTEMS)) {
 }
 
 const requiredImports = [
-  '../src/commands/setup.js',
+  '../src/commands/uipgrade.js',
   '../src/services/platformV4Complete.js',
   '../src/services/communityV4.js',
   '../src/services/securityV4.js',
@@ -45,4 +45,4 @@ if (missing.length) {
   process.exit(1);
 }
 
-console.log(`Kingdom Core v4 self-test passed: ${checked.length} approved roadmap systems mapped to implementation files.`);
+console.log(`Kingdom Core v4 self-test passed: ${checked.length} approved roadmap systems mapped to implementation files; setup command retired.`);
