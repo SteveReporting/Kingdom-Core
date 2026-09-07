@@ -9,6 +9,7 @@ import {
 } from 'discord.js';
 import { execute as executeSetup } from './commands/setup.js';
 import { execute as executeSetup5 } from './commands/setup5.js';
+import { execute as executeSetup10 } from './commands/setup10.js';
 import { execute as executeMod } from './commands/mod.js';
 import { handleApplicationLinkButton, handleApplicationLinkModal } from './services/applicationLinks.js';
 import {
@@ -43,6 +44,7 @@ import {
 } from './services/platformV4Interactions.js';
 import { startPlatformApi } from './services/platformApiV4.js';
 import { runV4Maintenance, trackPlatformEvent } from './services/platformV4Runtime.js';
+import { handleV10Button, runV10Maintenance } from './services/platformV10.js';
 import { handleQueueButton, handleQueueSelect } from './services/queueV2.js';
 import { handleAuditLogEntry, handleMessageSpam } from './services/security.js';
 import { handleV4AuditEvent } from './services/securityV4.js';
@@ -103,6 +105,7 @@ async function runMaintenance(guild) {
     await runStep('platform-automation', () => runPlatformAutomationV4(guild));
     await runStep('heartbeat-safe-v5', () => runHeartbeatSafePlatformMaintenance(guild));
     await runStep('community', () => runCommunityMaintenance(guild));
+    await runStep('v10-resource-guard', () => runV10Maintenance(guild));
   } finally {
     maintenanceInFlight.delete(guild.id);
     const elapsed = Date.now() - started;
@@ -190,6 +193,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
         await executeSetup5(interaction);
         return;
       }
+      if (interaction.commandName === 'setup10') {
+        await executeSetup10(interaction);
+        return;
+      }
       if (interaction.commandName === 'mod') {
         await executeMod(interaction);
         return;
@@ -197,6 +204,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
     }
 
     if (interaction.isButton()) {
+      if (interaction.customId.startsWith('kc10:')) {
+        const handled = await handleV10Button(interaction);
+        if (handled !== false) return;
+      }
       if (interaction.customId.startsWith('kc4x:')) {
         const handled = await handlePlatformV4CompleteButton(interaction);
         if (handled !== false) return;
