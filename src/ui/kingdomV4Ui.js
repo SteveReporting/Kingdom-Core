@@ -8,15 +8,15 @@ import {
 import { BRAND } from '../config/blueprint.js';
 
 export const KC4_COLORS = {
-  royal: 0x7c3aed,
-  command: 0x5865f2,
+  royal: 0xd4af37,
+  command: 0x7c3aed,
   success: 0x57f287,
   warning: 0xfee75c,
   danger: 0xed4245,
   economy: 0xf1c40f,
   carrier: 0x3498db,
   security: 0xe74c3c,
-  neutral: BRAND.color
+  neutral: 0x5865f2
 };
 
 export function bar(value, max = 100, width = 10) {
@@ -43,15 +43,15 @@ export function duration(minutes = 0) {
 export function panel(title, subtitle, color = KC4_COLORS.royal) {
   return new EmbedBuilder()
     .setColor(color)
-    .setAuthor({ name: 'KINGDOM CORE • OPERATING PLATFORM' })
+    .setAuthor({ name: 'KINGDOM CARRIES • REALM OPERATING PLATFORM' })
     .setTitle(title)
     .setDescription(subtitle)
-    .setFooter({ text: `${BRAND.footer} • Platform v4` })
+    .setFooter({ text: `${BRAND.footer} • UI vNext` })
     .setTimestamp();
 }
 
 export function section(title, body) {
-  return `**${title}**\n${body}`;
+  return `### ${title}\n${body}`;
 }
 
 export function metric(name, value, hint = '') {
