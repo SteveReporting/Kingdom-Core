@@ -12,6 +12,7 @@ import { installPlatformV4Complete } from '../services/platformV4Complete.js';
 import { runV4Maintenance } from '../services/platformV4Runtime.js';
 import { finalizePlatformV5, installPlatformV5 } from '../services/platformV5.js';
 import { finalizePlatformV10, installPlatformV10, runV10Maintenance } from '../services/platformV10.js';
+import { installRealmEnginesRuntimeV10, runRealmMaintenanceV10 } from '../services/realmRuntimeV10.js';
 import { installStatsAndVerification } from '../services/serverStatsVerification.js';
 import { finishPermissionMatrix } from '../services/setup2Finishing.js';
 import { installUltimateSetup2 } from '../services/setup2Ultimate.js';
@@ -66,14 +67,16 @@ export async function execute(interaction) {
   const advanced = await installPlatformV4Complete(interaction.guild);
   const v5 = await installPlatformV5(interaction.guild);
 
-  await progress('06/10 • Installing the 370-system v10 shared-engine layer and routing it into existing hubs…');
+  await progress('06/10 • Installing the 370-system v10 shared engines and routing them into existing hubs…');
   const v10 = await installPlatformV10(interaction.guild);
+  const realm = await installRealmEnginesRuntimeV10(interaction.guild);
 
   await progress('07/10 • Running heartbeat-safe maintenance and low-memory resource guards…');
   await runV4Maintenance(interaction.guild);
   await runPlatformAutomationV4(interaction.guild);
   await runHeartbeatSafePlatformMaintenance(interaction.guild);
   await runCommunityMaintenance(interaction.guild);
+  await runRealmMaintenanceV10(interaction.guild);
   await runV10Maintenance(interaction.guild);
 
   await progress('08/10 • Converging duplicate categories and removing only safe empty duplicate channels…');
@@ -99,6 +102,7 @@ export async function execute(interaction) {
     '**370-SYSTEM ROADMAP**',
     `• Approved systems registered: **${v10Verification.approved}/370**`,
     `• Shared domain engines: **${v10.engines}** across **${v10.domains}** major domains`,
+    `• Runtime engine mode: **${realm.runtimeMode}**`,
     `• Domain hubs mapped into existing channels: **${v10Verification.mappedHubs}/${v10.domains}**`,
     '• AI systems #291–300 are installed as an adapter but **temporarily disabled** for VPS stability.',
     '',
