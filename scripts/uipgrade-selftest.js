@@ -15,9 +15,9 @@ const [command, service, appReview, ui, deploy, index] = await Promise.all([
 ]);
 
 if (!command.includes("setName('uipgrade')")) failures.push('UIpgrade slash command is missing.');
-if (deploy.includes('setupCommand') || deploy.includes('setup2Command') || deploy.includes('setup3Command')) failures.push('A retired setup command is still deployed.');
+if (deploy.includes('setupCommand') || deploy.includes('setup2Command')) failures.push('A retired legacy setup command is still deployed.');
 if (!deploy.includes('uiUpgradeCommand')) failures.push('UIpgrade is not registered for deployment.');
-if (index.includes("interaction.commandName === 'setup") || index.includes("interaction.commandName === 'setup2") || index.includes("interaction.commandName === 'setup3")) failures.push('A retired setup command is still routed at runtime.');
+if (index.includes("interaction.commandName === 'setup'") || index.includes("interaction.commandName === 'setup2'")) failures.push('A retired legacy setup command is still routed at runtime.');
 if (!index.includes("interaction.commandName === 'uipgrade'")) failures.push('UIpgrade is not routed at runtime.');
 if (!index.includes("interaction.customId.startsWith('kc:app:review:')")) failures.push('Legacy application review buttons can still bypass the full grader.');
 
@@ -51,4 +51,4 @@ if (failures.length) {
   process.exit(1);
 }
 
-console.log('Kingdom Core UIpgrade self-test passed: setup commands retired, protected-channel purge rules present, UI vNext imports resolved, and paged application grading/roles/DM onboarding verified.');
+console.log('Kingdom Core UIpgrade self-test passed: legacy setup/setup2 retired, UIpgrade and curated setup3 may coexist, protected-channel purge rules present, and paged application grading/roles/DM onboarding verified.');
