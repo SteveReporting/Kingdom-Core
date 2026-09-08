@@ -22,6 +22,9 @@ jobs:
       - name: Import UIpgrade
         run: |
           node -e "Promise.all([import('./src/commands/uipgrade.js'),import('./src/services/uiUpgrade.js'),import('./src/services/applicationLinks.js'),import('./src/ui/realmUiVNext.js')]).then(()=>console.log('UIpgrade imports OK'))"
+      - name: Import setup3 organizer
+        run: |
+          node -e "Promise.all([import('./src/commands/setup3.js'),import('./src/services/serverOrganizerV3.js')]).then(()=>console.log('setup3 organizer imports OK'))"
       - name: Import carry sessions
         run: |
           node -e "import('./src/services/carryPartiesV3.js').then(()=>console.log('carry sessions import OK'))"
@@ -33,6 +36,8 @@ jobs:
           node -e "Promise.all([import('./src/services/platformV4.js'),import('./src/services/platformV4Runtime.js'),import('./src/services/platformV4Interactions.js'),import('./src/services/platformV4Complete.js'),import('./src/services/platformV4Automation.js'),import('./src/services/platformV5.js'),import('./src/services/platformV10.js'),import('./src/services/realmEnginesV10.js'),import('./src/services/realmRuntimeV10.js'),import('./src/services/realmIntelligenceV10.js'),import('./src/services/realmIntelligenceRuntimeV10.js'),import('./src/services/platformApiV4.js'),import('./src/services/externalInfraV4.js'),import('./src/services/communityV4.js'),import('./src/services/securityV4.js'),import('./src/ui/kingdomV4Ui.js'),import('./src/ui/realmUiVNext.js')]).then(()=>console.log('platform imports OK'))"
       - name: UIpgrade self-test
         run: npm run selftest:uipgrade
+      - name: setup3 organizer self-test
+        run: npm run selftest:setup3
       - name: Carry session self-test
         run: npm run selftest:carry-sessions
       - name: Approved roadmap v4 self-test
