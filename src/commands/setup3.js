@@ -3,7 +3,7 @@ import { analyseServerForSetup3, organiseServerV3, SETUP3_GROUPS } from '../serv
 
 export const data = new SlashCommandBuilder()
   .setName('setup3')
-  .setDescription('Organise Kingdom Carries into the curated category layout without touching protected carry/economy/knight zones.')
+  .setDescription('Organise Kingdom Carries into the curated category layout safely.')
   .addBooleanOption((option) => option
     .setName('preview')
     .setDescription('Preview the category plan without moving or creating anything.'))
