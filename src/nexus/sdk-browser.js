@@ -67,6 +67,7 @@ export class KingdomNexus {
   applications() { return this.request('/api/applications'); }
   vault() { return this.request('/api/vault'); }
   studio() { return this.request('/api/studio/layouts'); }
+  audit(limit = 200) { return this.request(`/api/audit?limit=${Math.max(1, Math.min(500, Number(limit) || 200))}`); }
   apiDocument() { return this.request('/api/openapi'); }
   product(slug) { return this.request(`/api/products/${encodeURIComponent(slug)}`); }
 
@@ -74,12 +75,18 @@ export class KingdomNexus {
   verifyBackups() { return this.request('/api/admin/vault/verify'); }
 
   linkIdentity(profile) { return this.request('/api/identity/link', { method: 'POST', body: JSON.stringify(profile) }); }
+  unlinkIdentity(discordId) { return this.request(`/api/identity/${encodeURIComponent(discordId)}`, { method: 'DELETE' }); }
   saveTenant(tenant) { return this.request('/api/network/tenants', { method: 'POST', body: JSON.stringify(tenant) }); }
+  removeTenant(id) { return this.request(`/api/network/tenants/${encodeURIComponent(id)}`, { method: 'DELETE' }); }
   saveBuild(build) { return this.request('/api/companion/builds', { method: 'POST', body: JSON.stringify(build) }); }
+  removeBuild(id) { return this.request(`/api/companion/builds/${encodeURIComponent(id)}`, { method: 'DELETE' }); }
   saveGuide(guide) { return this.request('/api/companion/guides', { method: 'POST', body: JSON.stringify(guide) }); }
+  removeGuide(id) { return this.request(`/api/companion/guides/${encodeURIComponent(id)}`, { method: 'DELETE' }); }
   saveCampaign(campaign) { return this.request('/api/creators/campaigns', { method: 'POST', body: JSON.stringify(campaign) }); }
+  removeCampaign(id) { return this.request(`/api/creators/campaigns/${encodeURIComponent(id)}`, { method: 'DELETE' }); }
   saveLayout(layout) { return this.request('/api/studio/layouts', { method: 'POST', body: JSON.stringify(layout) }); }
   publishLayout(id) { return this.request(`/api/studio/layouts/${encodeURIComponent(id)}/publish`, { method: 'POST', body: '{}' }); }
+  removeLayout(id) { return this.request(`/api/studio/layouts/${encodeURIComponent(id)}`, { method: 'DELETE' }); }
   openIncident(incident) { return this.request('/api/sentinel/incidents', { method: 'POST', body: JSON.stringify(incident) }); }
   updateIncident(id, patch) { return this.request(`/api/sentinel/incidents/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(patch) }); }
   addApplicationNote(id, text) { return this.request(`/api/applications/${encodeURIComponent(id)}/notes`, { method: 'POST', body: JSON.stringify({ text }) }); }
