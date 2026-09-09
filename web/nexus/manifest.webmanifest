@@ -1,0 +1,11 @@
+{
+  "name": "Kingdom Nexus",
+  "short_name": "Nexus",
+  "description": "Kingdom Carries unified control plane.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#080a0f",
+  "theme_color": "#0b0d12",
+  "categories": ["utilities", "productivity", "social"]
+}
