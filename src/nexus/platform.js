@@ -29,8 +29,20 @@ import {
   publicSession,
   startDiscordOAuth
 } from './auth.js';
+import {
+  buildApplicationsPayload,
+  buildCompanionPayload,
+  buildCreatorsPayload,
+  buildIdentityPayload,
+  buildLivePayload,
+  buildNetworkPayload,
+  buildStudioPayload,
+  buildVaultPayload
+} from './webData.js';
+import { addApplicationReviewNote, finalizeApplicationReview } from './applicationOps.js';
 
 const WEB_ROOT = path.resolve('web', 'nexus');
+const OPERATOR_READS = new Set(['/api/identity', '/api/applications', '/api/vault', '/api/studio/layouts']);
 let server = null;
 let maintenanceTimer = null;
 let initialMaintenanceTimer = null;
@@ -70,6 +82,10 @@ function adminAuthorized(req) {
   return tokenOk || isOperatorSession(req);
 }
 
+function reviewerId(req, client) {
+  return publicSession(req)?.user?.id ?? client.user?.id ?? 'kingdom-nexus';
+}
+
 async function readBody(req, limit = 250_000) {
   let size = 0;
   const chunks = [];
@@ -89,21 +105,6 @@ async function readBody(req, limit = 250_000) {
 function chosenGuild(client) {
   const configured = String(process.env.GUILD_ID ?? '').trim();
   return (configured && client.guilds.cache.get(configured)) || client.guilds.cache.first() || null;
-}
-
-function safeLive(state, guild) {
-  const queue = Array.isArray(state.queue) ? state.queue : [];
-  const rawParties = state.carryParties ?? state.parties ?? {};
-  const activeParties = Object.values(rawParties).filter((party) => !['ended', 'closed', 'completed'].includes(String(party?.status ?? '').toLowerCase()));
-  const openTickets = Object.values(state.tickets ?? {}).filter((ticket) => !['closed', 'resolved', 'done'].includes(String(ticket?.status ?? '').toLowerCase())).length;
-  return {
-    guild: guild ? { id: guild.id, name: guild.name, memberCount: guild.memberCount ?? null } : null,
-    queueDepth: queue.length,
-    activeCarrySessions: activeParties.length,
-    openTickets,
-    completedCarries: Number(state.stats?.completedCarries ?? state.platform?.analytics?.completedCarries ?? 0),
-    updatedAt: new Date().toISOString()
-  };
 }
 
 async function staticFile(res, requestPath) {
@@ -138,21 +139,24 @@ function openApiDocument() {
   return {
     name: 'Kingdom Nexus API',
     version: NEXUS_VERSION,
-    auth: 'Admin endpoints accept either Discord operator session or Authorization: Bearer <KINGDOM_NEXUS_ADMIN_TOKEN>.',
+    auth: 'Operator endpoints accept a Discord operator session or Authorization: Bearer <KINGDOM_NEXUS_ADMIN_TOKEN>.',
     public: [
-      'GET /health', 'GET /api/me', 'GET /api/products', 'GET /api/status', 'GET /api/live',
-      'GET /api/live/stream', 'GET /api/intelligence', 'GET /api/sentinel',
-      'GET /api/network/summary', 'GET /api/launcher', 'GET /api/openapi',
+      'GET /health', 'GET /api/me', 'GET /api/products', 'GET /api/status',
+      'GET /api/live', 'GET /api/live/stream', 'GET /api/intelligence',
+      'GET /api/sentinel', 'GET /api/network/summary', 'GET /api/launcher',
+      'GET /api/companion', 'GET /api/creators', 'GET /api/openapi',
       'GET /api/products/:slug', 'GET /api/sdk/kingdom-nexus.js',
       'GET /auth/discord', 'GET /auth/discord/callback', 'GET /auth/logout'
     ],
-    admin: [
+    operator: [
+      'GET /api/identity', 'GET /api/applications', 'GET /api/vault', 'GET /api/studio/layouts',
       'GET /api/admin/state', 'GET /api/admin/vault/verify',
       'POST /api/network/tenants', 'POST /api/identity/link',
       'POST /api/companion/builds', 'POST /api/companion/guides',
       'POST /api/creators/campaigns', 'POST /api/studio/layouts',
       'POST /api/studio/layouts/:id/publish',
       'POST /api/sentinel/incidents', 'PATCH /api/sentinel/incidents/:id',
+      'POST /api/applications/:id/notes', 'POST /api/applications/:id/review',
       'POST /api/vault/backup', 'POST /api/ai'
     ]
   };
@@ -169,7 +173,7 @@ async function streamLive(req, res, client, guildId) {
     if (closed || res.destroyed) return;
     const guild = chosenGuild(client);
     const state = await readGuildState(guildId);
-    res.write(`event: live\ndata: ${JSON.stringify(safeLive(state, guild))}\n\n`);
+    res.write(`event: live\ndata: ${JSON.stringify(buildLivePayload(state, guild))}\n\n`);
   };
   await send();
   const timer = setInterval(() => send().catch(() => null), 5_000);
@@ -220,7 +224,7 @@ async function apiHandler(req, res, client, url) {
 
   if (req.method === 'GET' && url.pathname === '/api/live') {
     const state = await readGuildState(guildId);
-    return json(res, 200, safeLive(state, guild));
+    return json(res, 200, buildLivePayload(state, guild));
   }
   if (req.method === 'GET' && url.pathname === '/api/live/stream') return streamLive(req, res, client, guildId);
 
@@ -234,8 +238,10 @@ async function apiHandler(req, res, client, url) {
   if (req.method === 'GET' && url.pathname === '/api/sentinel') {
     const nexus = await getNexusState(guildId);
     const snapshot = guild ? await buildSentinelSnapshot(guild) : nexus.sentinel.lastSnapshot;
+    const operator = adminAuthorized(req);
     return json(res, 200, {
       snapshot,
+      incidents: operator ? nexus.sentinel.incidents : [],
       incidentsOpen: nexus.sentinel.incidents.filter((incident) => incident.status !== 'closed').length,
       criticalOpen: nexus.sentinel.incidents.filter((incident) => incident.status !== 'closed' && incident.severity === 'critical').length
     });
@@ -243,12 +249,45 @@ async function apiHandler(req, res, client, url) {
 
   if (req.method === 'GET' && url.pathname === '/api/network/summary') {
     const nexus = await getNexusState(guildId);
-    const tenants = Object.values(nexus.network.tenants ?? {});
-    return json(res, 200, {
-      tenants: tenants.length,
-      active: tenants.filter((tenant) => String(tenant.status ?? 'active') === 'active').length,
-      platform: 'Kingdom Network'
-    });
+    const state = await readGuildState(guildId);
+    return json(res, 200, buildNetworkPayload(nexus, guild, state));
+  }
+
+  if (req.method === 'GET' && url.pathname === '/api/companion') {
+    const nexus = await getNexusState(guildId);
+    const state = await readGuildState(guildId);
+    return json(res, 200, buildCompanionPayload(nexus, state));
+  }
+
+  if (req.method === 'GET' && url.pathname === '/api/creators') {
+    const nexus = await getNexusState(guildId);
+    return json(res, 200, buildCreatorsPayload(nexus));
+  }
+
+  if (req.method === 'GET' && OPERATOR_READS.has(url.pathname) && !adminAuthorized(req)) {
+    return json(res, 403, { error: 'Operator access is required.' });
+  }
+
+  if (req.method === 'GET' && url.pathname === '/api/identity') {
+    const nexus = await getNexusState(guildId);
+    const state = await readGuildState(guildId);
+    return json(res, 200, buildIdentityPayload(guild, nexus, state));
+  }
+
+  if (req.method === 'GET' && url.pathname === '/api/applications') {
+    const state = await readGuildState(guildId);
+    return json(res, 200, buildApplicationsPayload(state, guild));
+  }
+
+  if (req.method === 'GET' && url.pathname === '/api/vault') {
+    const nexus = await getNexusState(guildId);
+    const verification = await verifyVaultBackups(guildId);
+    return json(res, 200, buildVaultPayload(nexus, verification));
+  }
+
+  if (req.method === 'GET' && url.pathname === '/api/studio/layouts') {
+    const nexus = await getNexusState(guildId);
+    return json(res, 200, buildStudioPayload(nexus));
   }
 
   if (req.method === 'GET' && url.pathname.startsWith('/api/products/')) {
@@ -289,6 +328,18 @@ async function apiHandler(req, res, client, url) {
   if (req.method === 'POST' && url.pathname === '/api/sentinel/incidents') return json(res, 200, await createSentinelIncident(guildId, await readBody(req)));
   const incidentPatch = url.pathname.match(/^\/api\/sentinel\/incidents\/([^/]+)$/);
   if (req.method === 'PATCH' && incidentPatch) return json(res, 200, await updateSentinelIncident(guildId, decodeURIComponent(incidentPatch[1]), await readBody(req)));
+
+  const applicationNotes = url.pathname.match(/^\/api\/applications\/([^/]+)\/notes$/);
+  if (req.method === 'POST' && applicationNotes) {
+    const body = await readBody(req);
+    return json(res, 200, await addApplicationReviewNote(guildId, decodeURIComponent(applicationNotes[1]), reviewerId(req, client), body.text ?? body.note));
+  }
+
+  const applicationReview = url.pathname.match(/^\/api\/applications\/([^/]+)\/review$/);
+  if (req.method === 'POST' && applicationReview) {
+    if (!guild) return json(res, 503, { error: 'Discord guild is unavailable.' });
+    return json(res, 200, await finalizeApplicationReview(guild, decodeURIComponent(applicationReview[1]), reviewerId(req, client), await readBody(req)));
+  }
 
   if (req.method === 'POST' && url.pathname === '/api/vault/backup') return json(res, 200, await createVaultBackup(guildId));
   if (req.method === 'POST' && url.pathname === '/api/ai') {
