@@ -1,15 +1,24 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 import { PermissionFlagsBits } from 'discord.js';
 import { readGuildState } from '../storage/store.js';
 import { mutateNexusState } from './state.js';
 
 const VAULT_ROOT = path.resolve('data', 'vault');
+const lastMaintenance = new Map();
+const lastAutoBackup = new Map();
+const MAINTENANCE_INTERVAL_MS = Math.max(15 * 60_000, Number(process.env.KINGDOM_NEXUS_MAINTENANCE_MS ?? 15 * 60_000));
+const AUTO_BACKUP_INTERVAL_MS = Math.max(6 * 60 * 60_000, Number(process.env.KINGDOM_NEXUS_BACKUP_MS ?? 6 * 60 * 60_000));
 
 function count(value) {
   if (Array.isArray(value)) return value.length;
   if (value && typeof value === 'object') return Object.keys(value).length;
   return 0;
+}
+
+function sha256(buffer) {
+  return createHash('sha256').update(buffer).digest('hex');
 }
 
 export async function buildIntelligenceSnapshot(guild) {
@@ -28,7 +37,9 @@ export async function buildIntelligenceSnapshot(guild) {
     openTickets: Object.values(tickets).filter((ticket) => !['closed', 'resolved', 'done'].includes(String(ticket?.status ?? '').toLowerCase())).length,
     applications: count(apps),
     activeCarryParties: Object.values(parties).filter((party) => !['ended', 'closed', 'completed'].includes(String(party?.status ?? '').toLowerCase())).length,
-    completedCarries: completed
+    completedCarries: completed,
+    memoryMb: Math.round(process.memoryUsage().rss / 1024 / 1024),
+    uptimeSeconds: Math.floor(process.uptime())
   };
   await mutateNexusState(guild.id, (nexus) => {
     nexus.intelligence.lastSnapshot = snapshot;
@@ -62,25 +73,53 @@ export async function buildSentinelSnapshot(guild) {
   return snapshot;
 }
 
-export async function createVaultBackup(guildId) {
+export async function createVaultBackup(guildId, { automatic = false } = {}) {
   const state = await readGuildState(guildId);
   const folder = path.join(VAULT_ROOT, guildId);
   await fs.mkdir(folder, { recursive: true });
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
   const file = path.join(folder, `${stamp}.json`);
-  await fs.writeFile(file, JSON.stringify(state, null, 2), 'utf8');
+  const bytes = Buffer.from(JSON.stringify(state, null, 2), 'utf8');
+  await fs.writeFile(file, bytes);
 
   const entries = (await fs.readdir(folder)).filter((name) => name.endsWith('.json')).sort();
   const excess = Math.max(0, entries.length - 20);
   for (const old of entries.slice(0, excess)) await fs.unlink(path.join(folder, old)).catch(() => null);
 
   const relativePath = path.relative(process.cwd(), file);
-  const record = { at: new Date().toISOString(), file: relativePath };
+  const record = {
+    at: new Date().toISOString(),
+    file: relativePath,
+    bytes: bytes.length,
+    sha256: sha256(bytes),
+    automatic: Boolean(automatic)
+  };
   await mutateNexusState(guildId, (nexus) => {
     nexus.vault.backups.push(record);
     if (nexus.vault.backups.length > 20) nexus.vault.backups.splice(0, nexus.vault.backups.length - 20);
   });
   return record;
+}
+
+export async function verifyVaultBackups(guildId) {
+  const state = await readGuildState(guildId);
+  const records = state.nexus?.vault?.backups ?? [];
+  const results = [];
+  for (const record of records.slice(-20)) {
+    const full = path.resolve(record.file ?? '');
+    if (!full.startsWith(path.resolve(VAULT_ROOT))) {
+      results.push({ ...record, exists: false, verified: false, reason: 'path-outside-vault' });
+      continue;
+    }
+    try {
+      const bytes = await fs.readFile(full);
+      const digest = sha256(bytes);
+      results.push({ ...record, exists: true, verified: record.sha256 ? digest === record.sha256 : true, actualSha256: digest, bytes: bytes.length });
+    } catch (error) {
+      results.push({ ...record, exists: false, verified: false, reason: error.code ?? 'read-failed' });
+    }
+  }
+  return results;
 }
 
 export async function callLocalKingdomAi(prompt, context = {}) {
@@ -97,7 +136,7 @@ export async function callLocalKingdomAi(prompt, context = {}) {
         model,
         stream: false,
         messages: [
-          { role: 'system', content: 'You are Kingdom AI. Answer only from the supplied Kingdom context when context is relevant.' },
+          { role: 'system', content: 'You are Kingdom AI. Answer only from the supplied Kingdom context when context is relevant. Never claim to have performed actions you did not perform.' },
           { role: 'user', content: `${String(prompt).slice(0, 6000)}\n\nContext:\n${JSON.stringify(context).slice(0, 12000)}` }
         ]
       }),
@@ -109,4 +148,24 @@ export async function callLocalKingdomAi(prompt, context = {}) {
   } finally {
     clearTimeout(timer);
   }
+}
+
+export async function runNexusMaintenance(guild) {
+  const current = Date.now();
+  const previous = lastMaintenance.get(guild.id) ?? 0;
+  if (current - previous < MAINTENANCE_INTERVAL_MS) return { skipped: true, reason: 'throttled' };
+  lastMaintenance.set(guild.id, current);
+
+  const intelligence = await buildIntelligenceSnapshot(guild);
+  await new Promise((resolve) => setImmediate(resolve));
+  const sentinel = await buildSentinelSnapshot(guild);
+
+  let backup = null;
+  const previousBackup = lastAutoBackup.get(guild.id) ?? 0;
+  if (current - previousBackup >= AUTO_BACKUP_INTERVAL_MS) {
+    backup = await createVaultBackup(guild.id, { automatic: true });
+    lastAutoBackup.set(guild.id, current);
+  }
+
+  return { skipped: false, intelligence, sentinel, backup };
 }
