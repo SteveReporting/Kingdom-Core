@@ -1,6 +1,7 @@
 import http from 'node:http';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { createHash, timingSafeEqual } from 'node:crypto';
 import { NEXUS_PRODUCTS, FREE_RUNTIME_POLICY, NEXUS_VERSION, productBySlug } from './catalog.js';
 import { getNexusState, linkIdentity, upsertCreatorCampaign, upsertStudioLayout, upsertTenant } from './state.js';
 import { readGuildState } from '../storage/store.js';
@@ -23,11 +24,14 @@ import {
 } from './domain.js';
 import {
   completeDiscordOAuth,
+  csrfTokenForRequest,
   discordOAuthConfigured,
+  getNexusSession,
   isOperatorSession,
   logoutDiscord,
   publicSession,
-  startDiscordOAuth
+  startDiscordOAuth,
+  validCsrfToken
 } from './auth.js';
 import {
   buildApplicationsPayload,
@@ -43,6 +47,7 @@ import { addApplicationReviewNote, finalizeApplicationReview } from './applicati
 
 const WEB_ROOT = path.resolve('web', 'nexus');
 const OPERATOR_READS = new Set(['/api/identity', '/api/applications', '/api/vault', '/api/studio/layouts']);
+const rateBuckets = new Map();
 let server = null;
 let maintenanceTimer = null;
 let initialMaintenanceTimer = null;
@@ -50,9 +55,12 @@ let initialMaintenanceTimer = null;
 function baseHeaders(extra = {}) {
   return {
     'x-content-type-options': 'nosniff',
-    'x-frame-options': 'SAMEORIGIN',
-    'referrer-policy': 'same-origin',
-    'permissions-policy': 'camera=(), microphone=(), geolocation=()',
+    'x-frame-options': 'DENY',
+    'x-permitted-cross-domain-policies': 'none',
+    'referrer-policy': 'no-referrer',
+    'cross-origin-opener-policy': 'same-origin',
+    'cross-origin-resource-policy': 'same-origin',
+    'permissions-policy': 'camera=(), microphone=(), geolocation=(), payment=(), usb=()',
     ...extra
   };
 }
@@ -62,7 +70,8 @@ function json(res, status, value) {
   res.writeHead(status, baseHeaders({
     'content-type': 'application/json; charset=utf-8',
     'content-length': Buffer.byteLength(body),
-    'cache-control': 'no-store'
+    'cache-control': 'no-store, max-age=0',
+    pragma: 'no-cache'
   }));
   res.end(body);
 }
@@ -70,20 +79,71 @@ function json(res, status, value) {
 function text(res, status, value, type = 'text/plain; charset=utf-8') {
   res.writeHead(status, baseHeaders({
     'content-type': type,
-    'content-length': Buffer.byteLength(value)
+    'content-length': Buffer.byteLength(value),
+    'cache-control': 'no-store, max-age=0'
   }));
   res.end(value);
 }
 
-function adminAuthorized(req) {
+function digest(value) {
+  return createHash('sha256').update(String(value ?? ''), 'utf8').digest();
+}
+
+function secureEqual(left, right) {
+  const a = digest(left);
+  const b = digest(right);
+  return timingSafeEqual(a, b);
+}
+
+function isLoopback(address) {
+  const value = String(address ?? '').toLowerCase();
+  return value === '127.0.0.1' || value === '::1' || value === '::ffff:127.0.0.1';
+}
+
+function recoveryTokenAuthorized(req) {
+  if (!isLoopback(req.socket?.remoteAddress)) return false;
   const expected = String(process.env.KINGDOM_NEXUS_ADMIN_TOKEN ?? '').trim();
   const supplied = String(req.headers.authorization ?? '').replace(/^Bearer\s+/i, '').trim();
-  const tokenOk = Boolean(expected && supplied && supplied === expected);
-  return tokenOk || isOperatorSession(req);
+  return Boolean(expected && supplied && secureEqual(expected, supplied));
+}
+
+function adminAuthorized(req) {
+  return isOperatorSession(req) || recoveryTokenAuthorized(req);
 }
 
 function reviewerId(req, client) {
   return publicSession(req)?.user?.id ?? client.user?.id ?? 'kingdom-nexus';
+}
+
+function requestIdentity(req) {
+  return getNexusSession(req)?.user?.id ?? String(req.headers['cf-connecting-ip'] ?? req.socket?.remoteAddress ?? 'unknown');
+}
+
+function rateAllowed(req, scope, limit, windowMs) {
+  const now = Date.now();
+  const key = `${scope}:${requestIdentity(req)}`;
+  const current = rateBuckets.get(key);
+  if (!current || current.resetAt <= now) {
+    rateBuckets.set(key, { count: 1, resetAt: now + windowMs });
+    return true;
+  }
+  current.count += 1;
+  if (rateBuckets.size > 10_000) {
+    for (const [bucketKey, bucket] of rateBuckets) {
+      if (bucket.resetAt <= now) rateBuckets.delete(bucketKey);
+    }
+  }
+  return current.count <= limit;
+}
+
+function validBrowserWrite(req) {
+  if (!isOperatorSession(req)) return true;
+  const expectedOrigin = String(process.env.KINGDOM_NEXUS_PUBLIC_URL ?? '').trim().replace(/\/$/, '');
+  const origin = String(req.headers.origin ?? '').trim().replace(/\/$/, '');
+  if (!expectedOrigin.startsWith('https://') || origin !== expectedOrigin) return false;
+  const fetchSite = String(req.headers['sec-fetch-site'] ?? '').toLowerCase();
+  if (fetchSite && fetchSite !== 'same-origin') return false;
+  return validCsrfToken(req);
 }
 
 async function readBody(req, limit = 250_000) {
@@ -110,7 +170,8 @@ function chosenGuild(client) {
 async function staticFile(res, requestPath) {
   const clean = requestPath === '/' ? '/index.html' : requestPath;
   const file = path.resolve(WEB_ROOT, `.${clean}`);
-  if (!file.startsWith(WEB_ROOT)) return false;
+  const relative = path.relative(WEB_ROOT, file);
+  if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) return false;
   try {
     const data = await fs.readFile(file);
     const ext = path.extname(file).toLowerCase();
@@ -125,7 +186,9 @@ async function staticFile(res, requestPath) {
     res.writeHead(200, baseHeaders({
       'content-type': type,
       'cache-control': ext === '.html' ? 'no-cache' : 'public, max-age=300',
-      ...(ext === '.html' ? { 'content-security-policy': "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: https://cdn.discordapp.com; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'self'" } : {})
+      ...(ext === '.html' ? {
+        'content-security-policy': "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: https://cdn.discordapp.com; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self' https://discord.com"
+      } : {})
     }));
     res.end(data);
     return true;
@@ -139,14 +202,13 @@ function openApiDocument() {
   return {
     name: 'Kingdom Nexus API',
     version: NEXUS_VERSION,
-    auth: 'Operator endpoints accept a Discord operator session or Authorization: Bearer <KINGDOM_NEXUS_ADMIN_TOKEN>.',
-    public: [
-      'GET /health', 'GET /api/me', 'GET /api/products', 'GET /api/status',
-      'GET /api/live', 'GET /api/live/stream', 'GET /api/intelligence',
-      'GET /api/sentinel', 'GET /api/network/summary', 'GET /api/launcher',
-      'GET /api/companion', 'GET /api/creators', 'GET /api/openapi',
-      'GET /api/products/:slug', 'GET /api/sdk/kingdom-nexus.js',
-      'GET /auth/discord', 'GET /auth/discord/callback', 'GET /auth/logout'
+    auth: 'Operational reads require a signed-in Kingdom guild member. Operator writes require a Discord operator session and CSRF token. The recovery bearer token is local-only.',
+    public: ['GET /health', 'GET /api/me', 'GET /auth/discord', 'GET /auth/discord/callback', 'GET /auth/logout'],
+    member: [
+      'GET /api/products', 'GET /api/status', 'GET /api/live', 'GET /api/live/stream',
+      'GET /api/intelligence', 'GET /api/sentinel', 'GET /api/network/summary',
+      'GET /api/launcher', 'GET /api/companion', 'GET /api/creators',
+      'GET /api/openapi', 'GET /api/products/:slug', 'GET /api/sdk/kingdom-nexus.js'
     ],
     operator: [
       'GET /api/identity', 'GET /api/applications', 'GET /api/vault', 'GET /api/studio/layouts',
@@ -196,14 +258,24 @@ function launcherPayload() {
 async function apiHandler(req, res, client, url) {
   const guild = chosenGuild(client);
   const guildId = guild?.id ?? String(process.env.GUILD_ID ?? '').trim();
-  if (!guildId) return json(res, 503, { error: 'No Kingdom guild is available.' });
+  if (!guildId) return json(res, 503, { error: 'Kingdom Core is not ready.' });
 
   if (req.method === 'GET' && url.pathname === '/health') {
-    return json(res, 200, { ok: true, product: 'Kingdom Nexus', version: NEXUS_VERSION, guildId, uptimeSeconds: Math.floor(process.uptime()) });
+    return json(res, 200, { ok: true, product: 'Kingdom Nexus' });
   }
   if (req.method === 'GET' && url.pathname === '/api/me') {
-    return json(res, 200, { session: publicSession(req), discordOAuthConfigured: discordOAuthConfigured() });
+    const session = publicSession(req);
+    return json(res, 200, {
+      session,
+      csrfToken: session ? csrfTokenForRequest(req) : null,
+      discordOAuthConfigured: discordOAuthConfigured()
+    });
   }
+
+  if (!getNexusSession(req) && !recoveryTokenAuthorized(req)) {
+    return json(res, 401, { error: 'Sign in with Discord to access Kingdom Nexus.' });
+  }
+
   if (req.method === 'GET' && url.pathname === '/api/products') return json(res, 200, { products: NEXUS_PRODUCTS, freeRuntime: FREE_RUNTIME_POLICY });
   if (req.method === 'GET' && url.pathname === '/api/openapi') return json(res, 200, openApiDocument());
   if (req.method === 'GET' && url.pathname === '/api/launcher') return json(res, 200, launcherPayload());
@@ -305,6 +377,12 @@ async function apiHandler(req, res, client, url) {
   if ((isAdminPath || isWrite) && !adminAuthorized(req)) {
     return json(res, 403, { error: 'Operator access is required.' });
   }
+  if (isWrite && !rateAllowed(req, 'write', 60, 60_000)) {
+    return json(res, 429, { error: 'Too many operator requests. Try again shortly.' });
+  }
+  if (isWrite && !validBrowserWrite(req)) {
+    return json(res, 403, { error: 'Security validation failed. Refresh Nexus and try again.' });
+  }
 
   if (req.method === 'GET' && url.pathname === '/api/admin/state') {
     const nexus = await getNexusState(guildId);
@@ -378,8 +456,14 @@ export async function startNexusPlatform(client) {
     try {
       const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);
       const guild = chosenGuild(client);
-      if (req.method === 'GET' && url.pathname === '/auth/discord') return startDiscordOAuth(req, res, url);
-      if (req.method === 'GET' && url.pathname === '/auth/discord/callback') return await completeDiscordOAuth(req, res, url, guild);
+      if (req.method === 'GET' && url.pathname === '/auth/discord') {
+        if (!rateAllowed(req, 'oauth-start', 20, 60_000)) return text(res, 429, 'Too many login attempts. Try again shortly.');
+        return startDiscordOAuth(req, res, url);
+      }
+      if (req.method === 'GET' && url.pathname === '/auth/discord/callback') {
+        if (!rateAllowed(req, 'oauth-callback', 30, 60_000)) return text(res, 429, 'Too many login attempts. Try again shortly.');
+        return await completeDiscordOAuth(req, res, url, guild);
+      }
       if (req.method === 'GET' && url.pathname === '/auth/logout') return logoutDiscord(req, res);
       if (url.pathname.startsWith('/api/') || url.pathname === '/health') return await apiHandler(req, res, client, url);
       if (url.pathname === '/tv') return staticFile(res, '/tv.html');
@@ -391,6 +475,12 @@ export async function startNexusPlatform(client) {
       return json(res, status, { error: status === 500 ? 'Kingdom Nexus request failed.' : String(error.message ?? error) });
     }
   });
+
+  server.maxHeadersCount = 100;
+  server.headersTimeout = 10_000;
+  server.requestTimeout = 15_000;
+  server.keepAliveTimeout = 5_000;
+  server.maxRequestsPerSocket = 100;
 
   server.on('error', (error) => {
     console.error(`[Nexus] server error on ${host}:${port}:`, error.message);
