@@ -10,6 +10,8 @@ import {
   buildSentinelSnapshot,
   callLocalKingdomAi,
   createVaultBackup,
+  refreshSystemReadiness,
+  restoreVaultBackup,
   runNexusMaintenance,
   verifyVaultBackups
 } from './ops.js';
@@ -219,7 +221,7 @@ function openApiDocument() {
       'POST /api/studio/layouts/:id/publish',
       'POST /api/sentinel/incidents', 'PATCH /api/sentinel/incidents/:id',
       'POST /api/applications/:id/notes', 'POST /api/applications/:id/review',
-      'POST /api/vault/backup', 'POST /api/ai'
+      'POST /api/vault/backup', 'POST /api/vault/restore', 'POST /api/ai'
     ]
   };
 }
@@ -252,7 +254,14 @@ function launcherPayload() {
     ['Dungeon Quest', process.env.KINGDOM_GAME_URL],
     ['Kingdom Website', process.env.KINGDOM_WEBSITE_URL]
   ].filter(([, url]) => String(url ?? '').trim()).map(([name, url]) => ({ name, url: String(url).trim() }));
-  return { links, installable: true, mode: 'PWA', paidRuntimeRequired: false };
+  return {
+    links,
+    installable: true,
+    mode: 'PWA',
+    paidRuntimeRequired: false,
+    publicUrl: String(process.env.KINGDOM_NEXUS_PUBLIC_URL ?? '').trim() || null,
+    updatedAt: new Date().toISOString()
+  };
 }
 
 async function apiHandler(req, res, client, url) {
@@ -281,13 +290,14 @@ async function apiHandler(req, res, client, url) {
   if (req.method === 'GET' && url.pathname === '/api/launcher') return json(res, 200, launcherPayload());
 
   if (req.method === 'GET' && url.pathname === '/api/status') {
+    if (guild) await refreshSystemReadiness(guild);
     const nexus = await getNexusState(guildId);
     const intelligence = guild ? await buildIntelligenceSnapshot(guild) : nexus.intelligence.lastSnapshot;
     const sentinel = guild ? await buildSentinelSnapshot(guild) : nexus.sentinel.lastSnapshot;
     return json(res, 200, {
       version: NEXUS_VERSION,
       guild: guild ? { id: guild.id, name: guild.name, memberCount: guild.memberCount ?? null } : { id: guildId },
-      products: NEXUS_PRODUCTS.map((product) => ({ ...product, runtime: nexus.products[product.slug] ?? { enabled: true, status: 'ready' } })),
+      products: NEXUS_PRODUCTS.map((product) => ({ ...product, runtime: nexus.products[product.slug] ?? { enabled: true, status: 'checking' } })),
       intelligence,
       sentinel,
       freeRuntime: FREE_RUNTIME_POLICY
@@ -420,6 +430,7 @@ async function apiHandler(req, res, client, url) {
   }
 
   if (req.method === 'POST' && url.pathname === '/api/vault/backup') return json(res, 200, await createVaultBackup(guildId));
+  if (req.method === 'POST' && url.pathname === '/api/vault/restore') return json(res, 200, await restoreVaultBackup(guildId, await readBody(req)));
   if (req.method === 'POST' && url.pathname === '/api/ai') {
     const body = await readBody(req);
     const answer = await callLocalKingdomAi(body.prompt ?? '', body.context ?? {});
