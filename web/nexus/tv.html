@@ -1,1 +1,30 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Kingdom TV</title><style>html,body{margin:0;background:#05070a;color:#fff;font-family:Inter,system-ui,sans-serif}body{min-height:100vh;display:grid;place-items:center;background:radial-gradient(circle at 50% 10%,#271522 0,transparent 35%),#05070a}.wrap{width:min(1400px,94vw)}.eyebrow{letter-spacing:.22em;color:#d8b56a;font-size:14px}.title{font-size:72px;letter-spacing:-.05em;margin:10px 0 30px}.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px}.card{border:1px solid #28303d;background:rgba(15,19,27,.9);padding:26px;border-radius:18px}.v{font-size:54px;font-weight:900}.l{color:#98a1b2;text-transform:uppercase;letter-spacing:.12em;font-size:12px}.footer{margin-top:24px;color:#7e8798;font-size:12px}@media(max-width:800px){.title{font-size:46px}.grid{grid-template-columns:repeat(2,1fr)}} </style></head><body><div class="wrap"><div class="eyebrow">KINGDOM CARRIES • LIVE BROADCAST</div><div class="title">KINGDOM TV</div><div class="grid"><div class="card"><div class="v" id="members">—</div><div class="l">Members</div></div><div class="card"><div class="v" id="queue">—</div><div class="l">Queue</div></div><div class="card"><div class="v" id="parties">—</div><div class="l">Active Carries</div></div><div class="card"><div class="v" id="completed">—</div><div class="l">Completed Carries</div></div></div><div class="footer" id="updated">Connecting to Kingdom Nexus…</div></div><script>async function tick(){try{const r=await fetch('/api/status',{cache:'no-store'});const d=await r.json();const s=d.intelligence||{};members.textContent=d.guild?.memberCount??'—';queue.textContent=s.queueDepth??'—';parties.textContent=s.activeCarryParties??'—';completed.textContent=s.completedCarries??'—';updated.textContent='Live • '+new Date().toLocaleTimeString()}catch(e){updated.textContent='Nexus unavailable'}}tick();setInterval(tick,10000)</script></body></html>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="theme-color" content="#05070a" />
+  <title>Kingdom TV</title>
+  <link rel="stylesheet" href="/tv.css" />
+</head>
+<body>
+  <div class="wrap">
+    <div class="top">
+      <div>
+        <div class="eyebrow">KINGDOM CARRIES • LIVE BROADCAST</div>
+        <div class="title">KINGDOM TV</div>
+      </div>
+      <div class="live" id="liveState"><i></i> CONNECTING</div>
+    </div>
+    <div class="grid">
+      <div class="card"><div class="v" id="members">—</div><div class="l">Members</div></div>
+      <div class="card"><div class="v" id="queue">—</div><div class="l">Queue</div></div>
+      <div class="card"><div class="v" id="parties">—</div><div class="l">Active Carries</div></div>
+      <div class="card"><div class="v" id="tickets">—</div><div class="l">Open Tickets</div></div>
+      <div class="card"><div class="v" id="completed">—</div><div class="l">Completed Carries</div></div>
+    </div>
+    <div class="ticker"><span><strong>KINGDOM NEXUS</strong> • public-safe operations feed</span><span id="updated">Waiting for first update…</span></div>
+  </div>
+  <script type="module" src="/tv.js"></script>
+</body>
+</html>
