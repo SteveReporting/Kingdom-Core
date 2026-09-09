@@ -97,10 +97,27 @@ export async function publishStudioLayout(guildId, id) {
   return mutateNexusState(guildId, (nexus) => {
     const layout = nexus.studio.layouts[targetId];
     if (!layout) throw Object.assign(new Error('layout not found.'), { statusCode: 404 });
-    layout.version = Math.max(1, Number(layout.version ?? 0) + 1);
+
+    const publishedAt = now();
+    const currentVersion = Math.max(1, Number(layout.version ?? 1));
+    const nextVersion = layout.publishedAt ? currentVersion + 1 : currentVersion;
+    const snapshot = {
+      version: nextVersion,
+      publishedAt,
+      name: layout.name,
+      type: layout.type,
+      target: layout.target ?? null,
+      components: Array.isArray(layout.components) ? layout.components.map((component) => ({ ...component })) : []
+    };
+
+    layout.version = nextVersion;
     layout.status = 'published';
-    layout.publishedAt = now();
-    layout.updatedAt = now();
+    layout.publishedAt = publishedAt;
+    layout.updatedAt = publishedAt;
+    layout.history = Array.isArray(layout.history) ? layout.history : [];
+    layout.history.push(snapshot);
+    if (layout.history.length > 20) layout.history.splice(0, layout.history.length - 20);
+    if (nexus.studio?.drafts?.[targetId]) delete nexus.studio.drafts[targetId];
     return layout;
   });
 }
@@ -111,7 +128,9 @@ export function buildAdminSnapshot(nexus) {
     identity: { profiles: Object.values(nexus.identity?.profiles ?? {}) },
     companion: {
       builds: Object.values(nexus.companion?.builds ?? {}),
-      guides: Object.values(nexus.companion?.guides ?? {})
+      guides: Object.values(nexus.companion?.guides ?? {}),
+      dungeons: Object.values(nexus.companion?.dungeons ?? {}),
+      readiness: Object.values(nexus.companion?.readiness ?? {})
     },
     creators: { campaigns: Object.values(nexus.creators?.campaigns ?? {}) },
     studio: { layouts: Object.values(nexus.studio?.layouts ?? {}) },
