@@ -1,66 +1,61 @@
 import { getNexusState, mutateNexusState } from './state.js';
-
-function requireId(value, label = 'id') {
-  const id = String(value ?? '').trim();
-  if (!id) throw new Error(`${label} is required`);
-  return id;
-}
+import { safeDiscordId, safeRecordId } from './validation.js';
 
 export async function removeTenant(guildId, id) {
-  const target = requireId(id, 'tenant id');
+  const target = safeDiscordId(id, 'tenant Discord guild ID');
   return mutateNexusState(guildId, (nexus) => {
     const current = nexus.network?.tenants?.[target];
-    if (!current) throw new Error('tenant not found');
+    if (!current) throw Object.assign(new Error('tenant not found.'), { statusCode: 404 });
     delete nexus.network.tenants[target];
     return current;
   });
 }
 
 export async function unlinkIdentity(guildId, discordId) {
-  const target = requireId(discordId, 'discord id');
+  const target = safeDiscordId(discordId, 'Discord user ID');
   return mutateNexusState(guildId, (nexus) => {
     const current = nexus.identity?.profiles?.[target];
-    if (!current) throw new Error('identity profile not found');
+    if (!current) throw Object.assign(new Error('identity profile not found.'), { statusCode: 404 });
     delete nexus.identity.profiles[target];
     return current;
   });
 }
 
 export async function removeCompanionBuild(guildId, id) {
-  const target = requireId(id, 'build id');
+  const target = safeRecordId(id, 'build id');
   return mutateNexusState(guildId, (nexus) => {
     const current = nexus.companion?.builds?.[target];
-    if (!current) throw new Error('build not found');
+    if (!current) throw Object.assign(new Error('build not found.'), { statusCode: 404 });
     delete nexus.companion.builds[target];
     return current;
   });
 }
 
 export async function removeCompanionGuide(guildId, id) {
-  const target = requireId(id, 'guide id');
+  const target = safeRecordId(id, 'guide id');
   return mutateNexusState(guildId, (nexus) => {
     const current = nexus.companion?.guides?.[target];
-    if (!current) throw new Error('guide not found');
+    if (!current) throw Object.assign(new Error('guide not found.'), { statusCode: 404 });
     delete nexus.companion.guides[target];
     return current;
   });
 }
 
 export async function removeCreatorCampaign(guildId, id) {
-  const target = requireId(id, 'campaign id');
+  const target = safeRecordId(id, 'campaign id');
   return mutateNexusState(guildId, (nexus) => {
     const current = nexus.creators?.campaigns?.[target];
-    if (!current) throw new Error('campaign not found');
+    if (!current) throw Object.assign(new Error('campaign not found.'), { statusCode: 404 });
     delete nexus.creators.campaigns[target];
     return current;
   });
 }
 
 export async function removeStudioLayout(guildId, id) {
-  const target = requireId(id, 'layout id');
+  const target = safeRecordId(id, 'layout id');
   return mutateNexusState(guildId, (nexus) => {
     const current = nexus.studio?.layouts?.[target];
-    if (!current) throw new Error('layout not found');
+    if (!current) throw Object.assign(new Error('layout not found.'), { statusCode: 404 });
     delete nexus.studio.layouts[target];
     if (nexus.studio?.drafts?.[target]) delete nexus.studio.drafts[target];
     return current;
