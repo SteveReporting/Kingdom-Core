@@ -41,6 +41,7 @@ import {
   isOperatorSession,
   logoutDiscord,
   publicSession,
+  revalidateNexusSession,
   startDiscordOAuth,
   validCsrfToken
 } from './auth.js';
@@ -235,7 +236,7 @@ function openApiDocument() {
   return {
     name: 'Kingdom Nexus API',
     version: NEXUS_VERSION,
-    auth: 'Operational reads require a signed-in Kingdom guild member. Operator writes require a Discord operator session and CSRF token. The recovery bearer token is local-only.',
+    auth: 'Operational reads require a live, revalidated Kingdom guild membership. Operator writes require current Discord operator privileges plus a CSRF token. The recovery bearer token is local-only.',
     public: ['GET /health', 'GET /api/me', 'GET /auth/discord', 'GET /auth/discord/callback', 'GET /auth/logout'],
     member: [
       'GET /api/products', 'GET /api/status', 'GET /api/live', 'GET /api/live/stream',
@@ -266,19 +267,30 @@ async function streamLive(req, res, client, guildId) {
     connection: 'keep-alive'
   }));
   let closed = false;
+  let timer = null;
+  const close = () => {
+    if (closed) return;
+    closed = true;
+    if (timer) clearInterval(timer);
+    if (!res.destroyed) res.end();
+  };
   const send = async () => {
     if (closed || res.destroyed) return;
     const guild = chosenGuild(client);
+    const validated = await revalidateNexusSession(req, guild);
+    if (!validated && !recoveryTokenAuthorized(req)) {
+      res.write('event: auth\ndata: {"error":"session-expired"}\n\n');
+      close();
+      return;
+    }
     const state = await readGuildState(guildId);
     res.write(`event: live\ndata: ${JSON.stringify(buildLivePayload(state, guild))}\n\n`);
   };
   await send();
-  const timer = setInterval(() => send().catch(() => null), 5_000);
+  if (closed) return;
+  timer = setInterval(() => send().catch(() => close()), 5_000);
   timer.unref?.();
-  req.on('close', () => {
-    closed = true;
-    clearInterval(timer);
-  });
+  req.on('close', close);
 }
 
 function launcherPayload() {
@@ -303,12 +315,15 @@ async function apiHandler(req, res, client, url) {
   if (!guildId) return json(res, 503, { error: 'Kingdom Core is not ready.' });
 
   if (req.method === 'GET' && url.pathname === '/health') return json(res, 200, { ok: true, product: 'Kingdom Nexus' });
+
+  const existingSession = getNexusSession(req);
+  const validatedSession = existingSession ? await revalidateNexusSession(req, guild) : null;
   if (req.method === 'GET' && url.pathname === '/api/me') {
-    const session = publicSession(req);
+    const session = validatedSession ? publicSession(req) : null;
     return json(res, 200, { session, csrfToken: session ? csrfTokenForRequest(req) : null, discordOAuthConfigured: discordOAuthConfigured() });
   }
 
-  if (!getNexusSession(req) && !recoveryTokenAuthorized(req)) return json(res, 401, { error: 'Sign in with Discord to access Kingdom Nexus.' });
+  if (!validatedSession && !recoveryTokenAuthorized(req)) return json(res, 401, { error: 'Sign in with Discord to access Kingdom Nexus.' });
 
   if (req.method === 'GET' && url.pathname === '/api/products') return json(res, 200, { products: NEXUS_PRODUCTS, freeRuntime: FREE_RUNTIME_POLICY });
   if (req.method === 'GET' && url.pathname === '/api/openapi') return json(res, 200, openApiDocument());
