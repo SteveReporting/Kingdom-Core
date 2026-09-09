@@ -3,28 +3,46 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { NEXUS_PRODUCTS, FREE_RUNTIME_POLICY, NEXUS_VERSION, productBySlug } from './catalog.js';
 import { getNexusState, linkIdentity, upsertCreatorCampaign, upsertStudioLayout, upsertTenant } from './state.js';
+import { readGuildState } from '../storage/store.js';
 import { buildIntelligenceSnapshot, buildSentinelSnapshot, callLocalKingdomAi, createVaultBackup } from './ops.js';
+import {
+  buildAdminSnapshot,
+  buildTrendSummary,
+  createSentinelIncident,
+  publishStudioLayout,
+  updateSentinelIncident,
+  upsertCompanionBuild,
+  upsertCompanionGuide
+} from './domain.js';
 
 const WEB_ROOT = path.resolve('web', 'nexus');
 let server = null;
 
+function baseHeaders(extra = {}) {
+  return {
+    'x-content-type-options': 'nosniff',
+    'x-frame-options': 'SAMEORIGIN',
+    'referrer-policy': 'same-origin',
+    'permissions-policy': 'camera=(), microphone=(), geolocation=()',
+    ...extra
+  };
+}
+
 function json(res, status, value) {
   const body = JSON.stringify(value);
-  res.writeHead(status, {
+  res.writeHead(status, baseHeaders({
     'content-type': 'application/json; charset=utf-8',
     'content-length': Buffer.byteLength(body),
-    'cache-control': 'no-store',
-    'x-content-type-options': 'nosniff'
-  });
+    'cache-control': 'no-store'
+  }));
   res.end(body);
 }
 
 function text(res, status, value, type = 'text/plain; charset=utf-8') {
-  res.writeHead(status, {
+  res.writeHead(status, baseHeaders({
     'content-type': type,
-    'content-length': Buffer.byteLength(value),
-    'x-content-type-options': 'nosniff'
-  });
+    'content-length': Buffer.byteLength(value)
+  }));
   res.end(value);
 }
 
@@ -44,7 +62,11 @@ async function readBody(req, limit = 250_000) {
     chunks.push(chunk);
   }
   if (!chunks.length) return {};
-  return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+  } catch {
+    throw Object.assign(new Error('Invalid JSON request body'), { statusCode: 400 });
+  }
 }
 
 function chosenGuild(client) {
@@ -56,11 +78,13 @@ function safeLive(state, guild) {
   const queue = Array.isArray(state.queue) ? state.queue : [];
   const rawParties = state.carryParties ?? state.parties ?? {};
   const activeParties = Object.values(rawParties).filter((party) => !['ended', 'closed', 'completed'].includes(String(party?.status ?? '').toLowerCase()));
+  const openTickets = Object.values(state.tickets ?? {}).filter((ticket) => !['closed', 'resolved', 'done'].includes(String(ticket?.status ?? '').toLowerCase())).length;
   return {
     guild: guild ? { id: guild.id, name: guild.name, memberCount: guild.memberCount ?? null } : null,
     queueDepth: queue.length,
     activeCarrySessions: activeParties.length,
-    completedCarries: Number(state.stats?.completedCarries ?? 0),
+    openTickets,
+    completedCarries: Number(state.stats?.completedCarries ?? state.platform?.analytics?.completedCarries ?? 0),
     updatedAt: new Date().toISOString()
   };
 }
@@ -80,7 +104,11 @@ async function staticFile(res, requestPath) {
       '.webmanifest': 'application/manifest+json; charset=utf-8',
       '.svg': 'image/svg+xml'
     })[ext] ?? 'application/octet-stream';
-    res.writeHead(200, { 'content-type': type, 'cache-control': ext === '.html' ? 'no-cache' : 'public, max-age=300' });
+    res.writeHead(200, baseHeaders({
+      'content-type': type,
+      'cache-control': ext === '.html' ? 'no-cache' : 'public, max-age=300',
+      ...(ext === '.html' ? { 'content-security-policy': "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'self'" } : {})
+    }));
     res.end(data);
     return true;
   } catch (error) {
@@ -93,14 +121,54 @@ function openApiDocument() {
   return {
     name: 'Kingdom Nexus API',
     version: NEXUS_VERSION,
-    auth: 'Write/admin endpoints use Authorization: Bearer <KINGDOM_NEXUS_ADMIN_TOKEN>.',
-    endpoints: [
+    auth: 'Admin endpoints use Authorization: Bearer <KINGDOM_NEXUS_ADMIN_TOKEN>.',
+    public: [
       'GET /health', 'GET /api/products', 'GET /api/status', 'GET /api/live',
-      'GET /api/intelligence', 'GET /api/sentinel', 'GET /api/openapi',
-      'POST /api/network/tenants', 'POST /api/identity/link', 'POST /api/creators/campaigns',
-      'POST /api/studio/layouts', 'POST /api/vault/backup', 'POST /api/ai'
+      'GET /api/live/stream', 'GET /api/intelligence', 'GET /api/sentinel',
+      'GET /api/network/summary', 'GET /api/launcher', 'GET /api/openapi',
+      'GET /api/products/:slug', 'GET /api/sdk/kingdom-nexus.js'
+    ],
+    admin: [
+      'GET /api/admin/state',
+      'POST /api/network/tenants', 'POST /api/identity/link',
+      'POST /api/companion/builds', 'POST /api/companion/guides',
+      'POST /api/creators/campaigns', 'POST /api/studio/layouts',
+      'POST /api/studio/layouts/:id/publish',
+      'POST /api/sentinel/incidents', 'PATCH /api/sentinel/incidents/:id',
+      'POST /api/vault/backup', 'POST /api/ai'
     ]
   };
+}
+
+async function streamLive(req, res, client, guildId) {
+  res.writeHead(200, baseHeaders({
+    'content-type': 'text/event-stream; charset=utf-8',
+    'cache-control': 'no-cache, no-transform',
+    connection: 'keep-alive'
+  }));
+  let closed = false;
+  const send = async () => {
+    if (closed || res.destroyed) return;
+    const guild = chosenGuild(client);
+    const state = await readGuildState(guildId);
+    res.write(`event: live\ndata: ${JSON.stringify(safeLive(state, guild))}\n\n`);
+  };
+  await send();
+  const timer = setInterval(() => send().catch(() => null), 5_000);
+  timer.unref?.();
+  req.on('close', () => {
+    closed = true;
+    clearInterval(timer);
+  });
+}
+
+function launcherPayload() {
+  const links = [
+    ['Discord', process.env.KINGDOM_DISCORD_URL],
+    ['Dungeon Quest', process.env.KINGDOM_GAME_URL],
+    ['Kingdom Website', process.env.KINGDOM_WEBSITE_URL]
+  ].filter(([, url]) => String(url ?? '').trim()).map(([name, url]) => ({ name, url: String(url).trim() }));
+  return { links, installable: true, mode: 'PWA', paidRuntimeRequired: false };
 }
 
 async function apiHandler(req, res, client, url) {
@@ -111,10 +179,9 @@ async function apiHandler(req, res, client, url) {
   if (req.method === 'GET' && url.pathname === '/health') {
     return json(res, 200, { ok: true, product: 'Kingdom Nexus', version: NEXUS_VERSION, guildId, uptimeSeconds: Math.floor(process.uptime()) });
   }
-  if (req.method === 'GET' && url.pathname === '/api/products') {
-    return json(res, 200, { products: NEXUS_PRODUCTS, freeRuntime: FREE_RUNTIME_POLICY });
-  }
+  if (req.method === 'GET' && url.pathname === '/api/products') return json(res, 200, { products: NEXUS_PRODUCTS, freeRuntime: FREE_RUNTIME_POLICY });
   if (req.method === 'GET' && url.pathname === '/api/openapi') return json(res, 200, openApiDocument());
+  if (req.method === 'GET' && url.pathname === '/api/launcher') return json(res, 200, launcherPayload());
 
   if (req.method === 'GET' && url.pathname === '/api/status') {
     const nexus = await getNexusState(guildId);
@@ -131,22 +198,36 @@ async function apiHandler(req, res, client, url) {
   }
 
   if (req.method === 'GET' && url.pathname === '/api/live') {
-    const { default: _unused } = {};
-    const stateModule = await import('../storage/store.js');
-    const state = await stateModule.readGuildState(guildId);
+    const state = await readGuildState(guildId);
     return json(res, 200, safeLive(state, guild));
   }
+  if (req.method === 'GET' && url.pathname === '/api/live/stream') return streamLive(req, res, client, guildId);
 
   if (req.method === 'GET' && url.pathname === '/api/intelligence') {
     const nexus = await getNexusState(guildId);
     const snapshot = guild ? await buildIntelligenceSnapshot(guild) : nexus.intelligence.lastSnapshot;
-    return json(res, 200, { snapshot, history: nexus.intelligence.snapshots.slice(-24) });
+    const history = nexus.intelligence.snapshots.slice(-48);
+    return json(res, 200, { snapshot, history, trend: buildTrendSummary(history) });
   }
 
   if (req.method === 'GET' && url.pathname === '/api/sentinel') {
     const nexus = await getNexusState(guildId);
     const snapshot = guild ? await buildSentinelSnapshot(guild) : nexus.sentinel.lastSnapshot;
-    return json(res, 200, { snapshot, incidentsOpen: nexus.sentinel.incidents.filter((incident) => incident.status !== 'closed').length });
+    return json(res, 200, {
+      snapshot,
+      incidentsOpen: nexus.sentinel.incidents.filter((incident) => incident.status !== 'closed').length,
+      criticalOpen: nexus.sentinel.incidents.filter((incident) => incident.status !== 'closed' && incident.severity === 'critical').length
+    });
+  }
+
+  if (req.method === 'GET' && url.pathname === '/api/network/summary') {
+    const nexus = await getNexusState(guildId);
+    const tenants = Object.values(nexus.network.tenants ?? {});
+    return json(res, 200, {
+      tenants: tenants.length,
+      active: tenants.filter((tenant) => String(tenant.status ?? 'active') === 'active').length,
+      platform: 'Kingdom Network'
+    });
   }
 
   if (req.method === 'GET' && url.pathname.startsWith('/api/products/')) {
@@ -159,14 +240,31 @@ async function apiHandler(req, res, client, url) {
     return text(res, 200, sdk, 'text/javascript; charset=utf-8');
   }
 
-  if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method) && !adminAuthorized(req)) {
-    return json(res, 403, { error: 'Admin writes are disabled or the Nexus admin token is invalid.' });
+  const isAdminPath = url.pathname.startsWith('/api/admin/');
+  const isWrite = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method);
+  if ((isAdminPath || isWrite) && !adminAuthorized(req)) {
+    return json(res, 403, { error: 'Admin access is disabled or the Nexus admin token is invalid.' });
+  }
+
+  if (req.method === 'GET' && url.pathname === '/api/admin/state') {
+    const nexus = await getNexusState(guildId);
+    return json(res, 200, buildAdminSnapshot(nexus));
   }
 
   if (req.method === 'POST' && url.pathname === '/api/network/tenants') return json(res, 200, await upsertTenant(guildId, await readBody(req)));
   if (req.method === 'POST' && url.pathname === '/api/identity/link') return json(res, 200, await linkIdentity(guildId, await readBody(req)));
+  if (req.method === 'POST' && url.pathname === '/api/companion/builds') return json(res, 200, await upsertCompanionBuild(guildId, await readBody(req)));
+  if (req.method === 'POST' && url.pathname === '/api/companion/guides') return json(res, 200, await upsertCompanionGuide(guildId, await readBody(req)));
   if (req.method === 'POST' && url.pathname === '/api/creators/campaigns') return json(res, 200, await upsertCreatorCampaign(guildId, await readBody(req)));
   if (req.method === 'POST' && url.pathname === '/api/studio/layouts') return json(res, 200, await upsertStudioLayout(guildId, await readBody(req)));
+
+  const studioPublish = url.pathname.match(/^\/api\/studio\/layouts\/([^/]+)\/publish$/);
+  if (req.method === 'POST' && studioPublish) return json(res, 200, await publishStudioLayout(guildId, decodeURIComponent(studioPublish[1])));
+
+  if (req.method === 'POST' && url.pathname === '/api/sentinel/incidents') return json(res, 200, await createSentinelIncident(guildId, await readBody(req)));
+  const incidentPatch = url.pathname.match(/^\/api\/sentinel\/incidents\/([^/]+)$/);
+  if (req.method === 'PATCH' && incidentPatch) return json(res, 200, await updateSentinelIncident(guildId, decodeURIComponent(incidentPatch[1]), await readBody(req)));
+
   if (req.method === 'POST' && url.pathname === '/api/vault/backup') return json(res, 200, await createVaultBackup(guildId));
   if (req.method === 'POST' && url.pathname === '/api/ai') {
     const body = await readBody(req);
