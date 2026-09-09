@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { mutateNexusState } from './state.js';
-import { assertPlainObject, cleanOptionalText, cleanText, safeRecordId } from './validation.js';
+import { assertPlainObject, cleanOptionalText, cleanText, safeRecordId, safeStatus } from './validation.js';
 
 function now() {
   return new Date().toISOString();
@@ -47,6 +47,51 @@ export async function upsertCompanionGuide(guildId, input = {}) {
       updatedAt: now()
     };
     nexus.companion.guides[id] = record;
+    return record;
+  });
+}
+
+export async function upsertCompanionDungeon(guildId, input = {}) {
+  assertPlainObject(input, 'companion dungeon');
+  const id = safeRecordId(input.id ?? randomUUID(), 'dungeon id');
+  const name = cleanText(input.name ?? input.title, 160);
+  if (!name) throw Object.assign(new Error('dungeon name is required.'), { statusCode: 400 });
+  return mutateNexusState(guildId, (nexus) => {
+    const current = nexus.companion.dungeons[id] ?? { id, createdAt: now() };
+    const record = {
+      ...current,
+      id,
+      name,
+      difficulty: cleanOptionalText(input.difficulty ?? current.difficulty, 80),
+      location: cleanOptionalText(input.location ?? input.world ?? current.location, 120),
+      rewards: cleanOptionalText(input.rewards ?? current.rewards, 1000),
+      notes: cleanOptionalText(input.notes ?? current.notes, 4000),
+      status: safeStatus(input.status ?? current.status, ['active', 'legacy', 'hidden'], 'active'),
+      updatedAt: now()
+    };
+    nexus.companion.dungeons[id] = record;
+    return record;
+  });
+}
+
+export async function upsertCompanionReadiness(guildId, input = {}) {
+  assertPlainObject(input, 'carry readiness rule');
+  const id = safeRecordId(input.id ?? randomUUID(), 'readiness id');
+  const name = cleanText(input.name ?? input.title ?? input.requirement, 160);
+  if (!name) throw Object.assign(new Error('readiness requirement is required.'), { statusCode: 400 });
+  return mutateNexusState(guildId, (nexus) => {
+    const current = nexus.companion.readiness[id] ?? { id, createdAt: now() };
+    const record = {
+      ...current,
+      id,
+      name,
+      description: cleanOptionalText(input.description ?? input.detail ?? current.description, 2000),
+      category: cleanOptionalText(input.category ?? current.category, 80),
+      required: input.required === undefined ? Boolean(current.required ?? true) : Boolean(input.required),
+      status: safeStatus(input.status ?? current.status, ['active', 'optional', 'hidden'], 'active'),
+      updatedAt: now()
+    };
+    nexus.companion.readiness[id] = record;
     return record;
   });
 }
