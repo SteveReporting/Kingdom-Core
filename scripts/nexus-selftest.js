@@ -44,8 +44,11 @@ for (const endpoint of [
 for (const capability of ['upsertCompanionBuild','upsertCompanionGuide','createSentinelIncident','updateSentinelIncident','publishStudioLayout','buildAdminSnapshot','buildTrendSummary']) {
   if (!domain.includes(capability)) failures.push(`Nexus domain capability missing: ${capability}`);
 }
-for (const capability of ['runNexusMaintenance','createVaultBackup','verifyVaultBackups','sha256','AUTO_BACKUP_INTERVAL_MS']) {
+for (const capability of ['runNexusMaintenance','refreshSystemReadiness','createVaultBackup','verifyVaultBackups','sha256','AUTO_BACKUP_INTERVAL_MS','configuration-required']) {
   if (!ops.includes(capability)) failures.push(`Nexus operations capability missing: ${capability}`);
+}
+for (const slug of NEXUS_PRODUCTS.map((product) => product.slug)) {
+  if (!ops.includes(`${slug}: runtime(`)) failures.push(`Runtime readiness check missing for Kingdom system: ${slug}`);
 }
 for (const capability of ['discordOAuthConfigured','startDiscordOAuth','completeDiscordOAuth','publicSession','isOperatorSession','HttpOnly','SameSite=Lax','SESSION_TTL_MS']) {
   if (!auth.includes(capability)) failures.push(`Nexus Discord OAuth capability missing: ${capability}`);
@@ -86,4 +89,4 @@ if (failures.length) {
   for (const failure of failures) console.error(`- ${failure}`);
   process.exit(1);
 }
-console.log('Kingdom suite self-test passed: all 20 systems are registered with free runtime, Discord OAuth operator sessions, live SSE/TV, SDK, Companion, Creator, Studio, Sentinel, verified Vault backups, Intelligence trends and low-memory maintenance verified.');
+console.log('Kingdom suite self-test passed: all 20 systems are registered with runtime readiness checks, free runtime, Discord OAuth operator sessions, live SSE/TV, SDK, Companion, Creator, Studio, Sentinel, verified Vault backups, Intelligence trends and low-memory maintenance verified.');
