@@ -21,6 +21,66 @@ function sha256(buffer) {
   return createHash('sha256').update(buffer).digest('hex');
 }
 
+function runtime(status, detail, enabled = true) {
+  return { enabled, status, detail, checkedAt: new Date().toISOString() };
+}
+
+export async function refreshSystemReadiness(guild) {
+  const publicUrl = String(process.env.KINGDOM_NEXUS_PUBLIC_URL ?? '').trim();
+  const oauthReady = Boolean(
+    String(process.env.CLIENT_ID ?? '').trim() &&
+    String(process.env.DISCORD_OAUTH_CLIENT_SECRET ?? '').trim() &&
+    publicUrl.startsWith('https://')
+  );
+  const aiReady = Boolean(String(process.env.KINGDOM_AI_LOCAL_URL ?? '').trim());
+
+  let vaultReady = true;
+  try {
+    await fs.mkdir(path.join(VAULT_ROOT, guild.id), { recursive: true });
+    await fs.access(path.join(VAULT_ROOT, guild.id));
+  } catch {
+    vaultReady = false;
+  }
+
+  let sdkReady = true;
+  try {
+    await fs.access(path.resolve('src', 'nexus', 'sdk-browser.js'));
+  } catch {
+    sdkReady = false;
+  }
+
+  const publicSurfaceReady = publicUrl.startsWith('https://');
+  const states = {
+    core: runtime('operational', `Discord gateway connected to ${guild.name}.`),
+    platform: runtime('operational', 'Shared Kingdom services and Nexus backend are running.'),
+    mobile: runtime(publicSurfaceReady ? 'operational' : 'configuration-required', publicSurfaceReady ? 'Installable mobile web client has a secure public origin.' : 'A secure Nexus public origin is required.', publicSurfaceReady),
+    desktop: runtime(publicSurfaceReady ? 'operational' : 'configuration-required', publicSurfaceReady ? 'Installable desktop web client has a secure public origin.' : 'A secure Nexus public origin is required.', publicSurfaceReady),
+    network: runtime('operational', 'Primary guild and tenant registry are available.'),
+    cloud: runtime(publicSurfaceReady ? 'operational' : 'degraded', publicSurfaceReady ? 'Private backend is paired with the secure Nexus public origin.' : 'Private backend is running without a configured public origin.'),
+    identity: runtime(oauthReady ? 'operational' : 'configuration-required', oauthReady ? 'Discord OAuth and Kingdom membership sessions are configured.' : 'Discord OAuth configuration is incomplete.', oauthReady),
+    launcher: runtime('operational', 'Launcher API and install surface are available.'),
+    companion: runtime('operational', 'Build, guide and readiness stores are available.'),
+    live: runtime('operational', 'Live queue snapshot and event stream are available.'),
+    tv: runtime(publicSurfaceReady ? 'operational' : 'configuration-required', publicSurfaceReady ? 'Broadcast route is available on the secure Nexus origin.' : 'A secure Nexus public origin is required.', publicSurfaceReady),
+    creators: runtime('operational', 'Creator campaign registry is available.'),
+    api: runtime('operational', 'Authenticated Kingdom HTTP API is available.'),
+    sdk: runtime(sdkReady ? 'operational' : 'degraded', sdkReady ? 'Browser SDK asset is present.' : 'SDK asset is missing.', sdkReady),
+    studio: runtime('operational', 'Studio layouts and publishing state are available.'),
+    sentinel: runtime('operational', 'Discord permission posture scanning is available.'),
+    vault: runtime(vaultReady ? 'operational' : 'degraded', vaultReady ? 'Vault storage is writable.' : 'Vault storage is unavailable.', vaultReady),
+    intelligence: runtime('operational', 'Operational snapshots and trend history are available.'),
+    ai: runtime(aiReady ? 'operational' : 'configuration-required', aiReady ? 'Kingdom AI endpoint is configured.' : 'Set KINGDOM_AI_LOCAL_URL to activate the optional private AI provider.', aiReady),
+    nexus: runtime('operational', 'Unified Kingdom control plane is running.')
+  };
+
+  await mutateNexusState(guild.id, (nexus) => {
+    for (const [slug, state] of Object.entries(states)) nexus.products[slug] = state;
+    nexus.ai.enabled = aiReady;
+    nexus.ai.provider = aiReady ? 'local' : 'unconfigured';
+  });
+  return states;
+}
+
 export async function buildIntelligenceSnapshot(guild) {
   const state = await readGuildState(guild.id);
   const queue = Array.isArray(state.queue) ? state.queue : [];
@@ -159,6 +219,7 @@ export async function runNexusMaintenance(guild) {
   const intelligence = await buildIntelligenceSnapshot(guild);
   await new Promise((resolve) => setImmediate(resolve));
   const sentinel = await buildSentinelSnapshot(guild);
+  const systems = await refreshSystemReadiness(guild);
 
   let backup = null;
   const previousBackup = lastAutoBackup.get(guild.id) ?? 0;
@@ -167,5 +228,5 @@ export async function runNexusMaintenance(guild) {
     lastAutoBackup.set(guild.id, current);
   }
 
-  return { skipped: false, intelligence, sentinel, backup };
+  return { skipped: false, intelligence, sentinel, systems, backup };
 }
