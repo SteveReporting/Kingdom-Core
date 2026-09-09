@@ -21,6 +21,14 @@ import {
   upsertCompanionBuild,
   upsertCompanionGuide
 } from './domain.js';
+import {
+  completeDiscordOAuth,
+  discordOAuthConfigured,
+  isOperatorSession,
+  logoutDiscord,
+  publicSession,
+  startDiscordOAuth
+} from './auth.js';
 
 const WEB_ROOT = path.resolve('web', 'nexus');
 let server = null;
@@ -57,9 +65,9 @@ function text(res, status, value, type = 'text/plain; charset=utf-8') {
 
 function adminAuthorized(req) {
   const expected = String(process.env.KINGDOM_NEXUS_ADMIN_TOKEN ?? '').trim();
-  if (!expected) return false;
   const supplied = String(req.headers.authorization ?? '').replace(/^Bearer\s+/i, '').trim();
-  return supplied.length > 0 && supplied === expected;
+  const tokenOk = Boolean(expected && supplied && supplied === expected);
+  return tokenOk || isOperatorSession(req);
 }
 
 async function readBody(req, limit = 250_000) {
@@ -116,7 +124,7 @@ async function staticFile(res, requestPath) {
     res.writeHead(200, baseHeaders({
       'content-type': type,
       'cache-control': ext === '.html' ? 'no-cache' : 'public, max-age=300',
-      ...(ext === '.html' ? { 'content-security-policy': "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'self'" } : {})
+      ...(ext === '.html' ? { 'content-security-policy': "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: https://cdn.discordapp.com; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'self'" } : {})
     }));
     res.end(data);
     return true;
@@ -130,12 +138,13 @@ function openApiDocument() {
   return {
     name: 'Kingdom Nexus API',
     version: NEXUS_VERSION,
-    auth: 'Admin endpoints use Authorization: Bearer <KINGDOM_NEXUS_ADMIN_TOKEN>.',
+    auth: 'Admin endpoints accept either Discord operator session or Authorization: Bearer <KINGDOM_NEXUS_ADMIN_TOKEN>.',
     public: [
-      'GET /health', 'GET /api/products', 'GET /api/status', 'GET /api/live',
+      'GET /health', 'GET /api/me', 'GET /api/products', 'GET /api/status', 'GET /api/live',
       'GET /api/live/stream', 'GET /api/intelligence', 'GET /api/sentinel',
       'GET /api/network/summary', 'GET /api/launcher', 'GET /api/openapi',
-      'GET /api/products/:slug', 'GET /api/sdk/kingdom-nexus.js'
+      'GET /api/products/:slug', 'GET /api/sdk/kingdom-nexus.js',
+      'GET /auth/discord', 'GET /auth/discord/callback', 'GET /auth/logout'
     ],
     admin: [
       'GET /api/admin/state', 'GET /api/admin/vault/verify',
@@ -187,6 +196,9 @@ async function apiHandler(req, res, client, url) {
 
   if (req.method === 'GET' && url.pathname === '/health') {
     return json(res, 200, { ok: true, product: 'Kingdom Nexus', version: NEXUS_VERSION, guildId, uptimeSeconds: Math.floor(process.uptime()) });
+  }
+  if (req.method === 'GET' && url.pathname === '/api/me') {
+    return json(res, 200, { session: publicSession(req), discordOAuthConfigured: discordOAuthConfigured() });
   }
   if (req.method === 'GET' && url.pathname === '/api/products') return json(res, 200, { products: NEXUS_PRODUCTS, freeRuntime: FREE_RUNTIME_POLICY });
   if (req.method === 'GET' && url.pathname === '/api/openapi') return json(res, 200, openApiDocument());
@@ -252,7 +264,7 @@ async function apiHandler(req, res, client, url) {
   const isAdminPath = url.pathname.startsWith('/api/admin/');
   const isWrite = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method);
   if ((isAdminPath || isWrite) && !adminAuthorized(req)) {
-    return json(res, 403, { error: 'Admin access is disabled or the Nexus admin token is invalid.' });
+    return json(res, 403, { error: 'Operator access is required.' });
   }
 
   if (req.method === 'GET' && url.pathname === '/api/admin/state') {
@@ -314,6 +326,10 @@ export async function startNexusPlatform(client) {
   server = http.createServer(async (req, res) => {
     try {
       const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);
+      const guild = chosenGuild(client);
+      if (req.method === 'GET' && url.pathname === '/auth/discord') return startDiscordOAuth(req, res, url);
+      if (req.method === 'GET' && url.pathname === '/auth/discord/callback') return await completeDiscordOAuth(req, res, url, guild);
+      if (req.method === 'GET' && url.pathname === '/auth/logout') return logoutDiscord(req, res);
       if (url.pathname.startsWith('/api/') || url.pathname === '/health') return await apiHandler(req, res, client, url);
       if (url.pathname === '/tv') return staticFile(res, '/tv.html');
       if (await staticFile(res, url.pathname)) return;
