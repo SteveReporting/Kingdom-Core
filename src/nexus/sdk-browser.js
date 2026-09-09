@@ -99,15 +99,72 @@ export class KingdomNexus {
   ask(prompt, context = {}) { return this.request('/api/ai', { method: 'POST', body: JSON.stringify({ prompt, context }) }); }
 
   streamLive(onUpdate, onError = null) {
-    if (typeof EventSource === 'undefined') throw new Error('EventSource is not available in this runtime.');
-    const source = new EventSource(`${this.baseUrl}/api/live/stream`, { withCredentials: true });
-    const read = (event) => {
-      try { onUpdate?.(JSON.parse(event.data)); } catch (error) { onError?.(error); }
-    };
-    source.addEventListener('live', read);
-    source.addEventListener('message', read);
-    if (onError) source.addEventListener('error', onError);
-    return () => source.close();
+    if (typeof EventSource !== 'undefined') {
+      const source = new EventSource(`${this.baseUrl}/api/live/stream`, { withCredentials: true });
+      const read = (event) => {
+        try { onUpdate?.(JSON.parse(event.data)); } catch (error) { onError?.(error); }
+      };
+      source.addEventListener('live', read);
+      source.addEventListener('message', read);
+      source.addEventListener('auth', (event) => {
+        let message = 'Kingdom Nexus live session expired.';
+        try { message = JSON.parse(event.data)?.error || message; } catch { /* keep safe message */ }
+        onError?.(new Error(message));
+        source.close();
+      });
+      if (onError) source.addEventListener('error', onError);
+      return () => source.close();
+    }
+
+    if (typeof fetch === 'undefined' || typeof TextDecoder === 'undefined') {
+      throw new Error('This runtime does not provide EventSource or streaming fetch.');
+    }
+
+    const controller = new AbortController();
+    const headers = { accept: 'text/event-stream' };
+    if (this.adminToken) headers.authorization = `Bearer ${this.adminToken}`;
+
+    void (async () => {
+      const response = await fetch(`${this.baseUrl}/api/live/stream`, {
+        method: 'GET',
+        headers,
+        credentials: 'include',
+        cache: 'no-store',
+        signal: controller.signal
+      });
+      if (!response.ok) throw new Error(`Kingdom Nexus live stream HTTP ${response.status}`);
+      if (!response.body?.getReader) throw new Error('Streaming response body is not available in this runtime.');
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      while (!controller.signal.aborted) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        let boundary;
+        while ((boundary = buffer.indexOf('\n\n')) >= 0) {
+          const frame = buffer.slice(0, boundary).replace(/\r/g, '');
+          buffer = buffer.slice(boundary + 2);
+          let eventName = 'message';
+          const dataLines = [];
+          for (const line of frame.split('\n')) {
+            if (line.startsWith('event:')) eventName = line.slice(6).trim();
+            else if (line.startsWith('data:')) dataLines.push(line.slice(5).trimStart());
+          }
+          if (!dataLines.length) continue;
+          const data = dataLines.join('\n');
+          if (eventName === 'auth') throw new Error('Kingdom Nexus live session expired.');
+          if (eventName === 'live' || eventName === 'message') {
+            try { onUpdate?.(JSON.parse(data)); } catch (error) { onError?.(error); }
+          }
+        }
+      }
+    })().catch((error) => {
+      if (!controller.signal.aborted) onError?.(error);
+    });
+
+    return () => controller.abort();
   }
 }
 
