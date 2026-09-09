@@ -1,30 +1,28 @@
 import { randomUUID } from 'node:crypto';
 import { mutateNexusState } from './state.js';
+import { assertPlainObject, cleanOptionalText, cleanText, safeRecordId } from './validation.js';
 
 function now() {
   return new Date().toISOString();
 }
 
-function cleanText(value, max = 500) {
-  return String(value ?? '').trim().slice(0, max);
-}
-
 export async function upsertCompanionBuild(guildId, input = {}) {
-  const id = String(input.id ?? randomUUID());
+  assertPlainObject(input, 'companion build');
+  const id = safeRecordId(input.id ?? randomUUID(), 'build id');
   const name = cleanText(input.name, 120);
-  if (!name) throw new Error('build name is required');
+  if (!name) throw Object.assign(new Error('build name is required.'), { statusCode: 400 });
   return mutateNexusState(guildId, (nexus) => {
     const current = nexus.companion.builds[id] ?? { id, createdAt: now() };
+    const gearInput = Array.isArray(input.gear) ? input.gear : null;
     const record = {
       ...current,
-      ...input,
       id,
       name,
-      class: cleanText(input.class ?? current.class, 80) || null,
-      dungeon: cleanText(input.dungeon ?? current.dungeon, 120) || null,
-      difficulty: cleanText(input.difficulty ?? current.difficulty, 80) || null,
-      notes: cleanText(input.notes ?? current.notes, 4000) || null,
-      gear: Array.isArray(input.gear) ? input.gear.slice(0, 30).map((item) => cleanText(item, 120)) : (current.gear ?? []),
+      class: cleanOptionalText(input.class ?? current.class, 80),
+      dungeon: cleanOptionalText(input.dungeon ?? current.dungeon, 120),
+      difficulty: cleanOptionalText(input.difficulty ?? current.difficulty, 80),
+      notes: cleanOptionalText(input.notes ?? current.notes, 4000),
+      gear: gearInput ? gearInput.slice(0, 30).map((item) => cleanText(item, 120)).filter(Boolean) : (Array.isArray(current.gear) ? current.gear.slice(0, 30) : []),
       updatedAt: now()
     };
     nexus.companion.builds[id] = record;
@@ -33,18 +31,18 @@ export async function upsertCompanionBuild(guildId, input = {}) {
 }
 
 export async function upsertCompanionGuide(guildId, input = {}) {
-  const id = String(input.id ?? randomUUID());
+  assertPlainObject(input, 'companion guide');
+  const id = safeRecordId(input.id ?? randomUUID(), 'guide id');
   const title = cleanText(input.title, 160);
-  if (!title) throw new Error('guide title is required');
+  if (!title) throw Object.assign(new Error('guide title is required.'), { statusCode: 400 });
   return mutateNexusState(guildId, (nexus) => {
     const current = nexus.companion.guides[id] ?? { id, createdAt: now() };
     const record = {
       ...current,
-      ...input,
       id,
       title,
-      dungeon: cleanText(input.dungeon ?? current.dungeon, 120) || null,
-      body: cleanText(input.body ?? current.body, 12000) || '',
+      dungeon: cleanOptionalText(input.dungeon ?? current.dungeon, 120),
+      body: cleanText(input.body ?? current.body, 12000),
       verified: Boolean(input.verified ?? current.verified ?? false),
       updatedAt: now()
     };
@@ -54,19 +52,21 @@ export async function upsertCompanionGuide(guildId, input = {}) {
 }
 
 export async function createSentinelIncident(guildId, input = {}) {
+  assertPlainObject(input, 'sentinel incident');
   const title = cleanText(input.title, 160);
-  if (!title) throw new Error('incident title is required');
+  if (!title) throw Object.assign(new Error('incident title is required.'), { statusCode: 400 });
+  const id = safeRecordId(input.id ?? randomUUID(), 'incident id');
   return mutateNexusState(guildId, (nexus) => {
     const incident = {
-      id: String(input.id ?? randomUUID()),
+      id,
       title,
       severity: ['low', 'medium', 'high', 'critical'].includes(String(input.severity)) ? String(input.severity) : 'medium',
       status: 'open',
       source: cleanText(input.source, 120) || 'manual',
-      summary: cleanText(input.summary, 4000) || null,
+      summary: cleanOptionalText(input.summary, 4000),
       createdAt: now(),
       updatedAt: now(),
-      events: [{ at: now(), type: 'opened', note: cleanText(input.note, 1000) || null }]
+      events: [{ at: now(), type: 'opened', note: cleanOptionalText(input.note, 1000) }]
     };
     nexus.sentinel.incidents.unshift(incident);
     if (nexus.sentinel.incidents.length > 200) nexus.sentinel.incidents.length = 200;
@@ -75,26 +75,29 @@ export async function createSentinelIncident(guildId, input = {}) {
 }
 
 export async function updateSentinelIncident(guildId, id, input = {}) {
+  assertPlainObject(input, 'sentinel incident update');
+  const targetId = safeRecordId(id, 'incident id');
   return mutateNexusState(guildId, (nexus) => {
-    const incident = nexus.sentinel.incidents.find((item) => item.id === id);
-    if (!incident) throw new Error('incident not found');
-    const status = cleanText(input.status, 30);
+    const incident = nexus.sentinel.incidents.find((item) => item.id === targetId);
+    if (!incident) throw Object.assign(new Error('incident not found.'), { statusCode: 404 });
+    const status = cleanText(input.status, 30).toLowerCase();
     if (status && ['open', 'investigating', 'contained', 'closed'].includes(status)) incident.status = status;
-    if (input.summary !== undefined) incident.summary = cleanText(input.summary, 4000) || null;
+    if (input.summary !== undefined) incident.summary = cleanOptionalText(input.summary, 4000);
     if (input.severity && ['low', 'medium', 'high', 'critical'].includes(String(input.severity))) incident.severity = String(input.severity);
     incident.updatedAt = now();
     incident.events ??= [];
-    incident.events.push({ at: now(), type: status || 'note', note: cleanText(input.note, 1000) || null });
+    incident.events.push({ at: now(), type: status || 'note', note: cleanOptionalText(input.note, 1000) });
     if (incident.events.length > 100) incident.events.splice(0, incident.events.length - 100);
     return incident;
   });
 }
 
 export async function publishStudioLayout(guildId, id) {
+  const targetId = safeRecordId(id, 'layout id');
   return mutateNexusState(guildId, (nexus) => {
-    const layout = nexus.studio.layouts[id];
-    if (!layout) throw new Error('layout not found');
-    layout.version = Number(layout.version ?? 0) + 1;
+    const layout = nexus.studio.layouts[targetId];
+    if (!layout) throw Object.assign(new Error('layout not found.'), { statusCode: 404 });
+    layout.version = Math.max(1, Number(layout.version ?? 0) + 1);
     layout.status = 'published';
     layout.publishedAt = now();
     layout.updatedAt = now();
