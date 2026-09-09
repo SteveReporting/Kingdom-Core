@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { mutateGuildState, readGuildState } from '../storage/store.js';
 import { NEXUS_PRODUCTS, NEXUS_VERSION } from './catalog.js';
 
@@ -27,9 +28,7 @@ export function ensureNexusState(state) {
   state.nexus.schema = 1;
   state.nexus.version = NEXUS_VERSION;
   state.nexus.products ??= {};
-  for (const product of NEXUS_PRODUCTS) {
-    state.nexus.products[product.slug] ??= { enabled: true, status: 'ready' };
-  }
+  for (const product of NEXUS_PRODUCTS) state.nexus.products[product.slug] ??= { enabled: true, status: 'ready' };
   state.nexus.network ??= { tenants: {} };
   state.nexus.network.tenants ??= {};
   state.nexus.identity ??= { profiles: {} };
@@ -72,14 +71,8 @@ export async function mutateNexusState(guildId, mutator) {
 export async function linkIdentity(guildId, { discordId, discordName = null, robloxUsername = null, robloxUserId = null }) {
   if (!discordId) throw new Error('discordId is required');
   return mutateNexusState(guildId, (nexus) => {
-    const current = nexus.identity.profiles[discordId] ?? {
-      discordId,
-      aliases: [],
-      createdAt: new Date().toISOString()
-    };
-    if (current.discordName && discordName && current.discordName !== discordName && !current.aliases.includes(current.discordName)) {
-      current.aliases.push(current.discordName);
-    }
+    const current = nexus.identity.profiles[discordId] ?? { discordId, aliases: [], createdAt: new Date().toISOString() };
+    if (current.discordName && discordName && current.discordName !== discordName && !current.aliases.includes(current.discordName)) current.aliases.push(current.discordName);
     current.discordName = discordName ?? current.discordName ?? null;
     current.robloxUsername = robloxUsername ?? current.robloxUsername ?? null;
     current.robloxUserId = robloxUserId ?? current.robloxUserId ?? null;
@@ -92,46 +85,27 @@ export async function linkIdentity(guildId, { discordId, discordName = null, rob
 export async function upsertTenant(guildId, tenant) {
   if (!tenant?.id || !tenant?.name) throw new Error('tenant id and name are required');
   return mutateNexusState(guildId, (nexus) => {
-    const record = {
-      ...(nexus.network.tenants[tenant.id] ?? {}),
-      ...tenant,
-      id: String(tenant.id),
-      name: String(tenant.name),
-      updatedAt: new Date().toISOString()
-    };
+    const record = { ...(nexus.network.tenants[tenant.id] ?? {}), ...tenant, id: String(tenant.id), name: String(tenant.name), updatedAt: new Date().toISOString() };
     nexus.network.tenants[record.id] = record;
     return record;
   });
 }
 
 export async function upsertCreatorCampaign(guildId, campaign) {
-  const id = String(campaign?.id ?? crypto.randomUUID());
+  const id = String(campaign?.id ?? randomUUID());
   if (!campaign?.name) throw new Error('campaign name is required');
   return mutateNexusState(guildId, (nexus) => {
-    const record = {
-      ...(nexus.creators.campaigns[id] ?? {}),
-      ...campaign,
-      id,
-      name: String(campaign.name),
-      updatedAt: new Date().toISOString()
-    };
+    const record = { ...(nexus.creators.campaigns[id] ?? {}), ...campaign, id, name: String(campaign.name), updatedAt: new Date().toISOString() };
     nexus.creators.campaigns[id] = record;
     return record;
   });
 }
 
 export async function upsertStudioLayout(guildId, layout) {
-  const id = String(layout?.id ?? crypto.randomUUID());
+  const id = String(layout?.id ?? randomUUID());
   if (!layout?.name) throw new Error('layout name is required');
   return mutateNexusState(guildId, (nexus) => {
-    const record = {
-      ...(nexus.studio.layouts[id] ?? {}),
-      ...layout,
-      id,
-      name: String(layout.name),
-      version: Number(layout.version ?? nexus.studio.layouts[id]?.version ?? 1),
-      updatedAt: new Date().toISOString()
-    };
+    const record = { ...(nexus.studio.layouts[id] ?? {}), ...layout, id, name: String(layout.name), version: Number(layout.version ?? nexus.studio.layouts[id]?.version ?? 1), updatedAt: new Date().toISOString() };
     nexus.studio.layouts[id] = record;
     return record;
   });
