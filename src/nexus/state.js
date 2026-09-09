@@ -13,6 +13,7 @@ import {
 } from './validation.js';
 
 const MAX_AUDIT_EVENTS = 500;
+const STUDIO_COMPONENT_TYPES = new Set(['panel', 'announcement', 'carry-card', 'button', 'text', 'metric', 'divider']);
 
 function blankNexus() {
   return {
@@ -23,7 +24,7 @@ function blankNexus() {
     products: Object.fromEntries(NEXUS_PRODUCTS.map((product) => [product.slug, { enabled: true, status: 'ready' }])),
     network: { tenants: {} },
     identity: { profiles: {} },
-    companion: { builds: {}, guides: {} },
+    companion: { builds: {}, guides: {}, dungeons: {}, readiness: {} },
     creators: { campaigns: {} },
     studio: { layouts: {}, drafts: {} },
     sentinel: { incidents: [], lastSnapshot: null },
@@ -46,9 +47,11 @@ export function ensureNexusState(state) {
   state.nexus.network.tenants ??= {};
   state.nexus.identity ??= { profiles: {} };
   state.nexus.identity.profiles ??= {};
-  state.nexus.companion ??= { builds: {}, guides: {} };
+  state.nexus.companion ??= { builds: {}, guides: {}, dungeons: {}, readiness: {} };
   state.nexus.companion.builds ??= {};
   state.nexus.companion.guides ??= {};
+  state.nexus.companion.dungeons ??= {};
+  state.nexus.companion.readiness ??= {};
   state.nexus.creators ??= { campaigns: {} };
   state.nexus.creators.campaigns ??= {};
   state.nexus.studio ??= { layouts: {}, drafts: {} };
@@ -188,6 +191,25 @@ export async function upsertCreatorCampaign(guildId, input = {}) {
   });
 }
 
+function sanitizeStudioComponents(input, current = []) {
+  if (input === undefined) return Array.isArray(current) ? current.slice(0, 50) : [];
+  if (!Array.isArray(input)) throw Object.assign(new Error('Studio components must be an array.'), { statusCode: 400 });
+  return input.slice(0, 50).map((raw, index) => {
+    assertPlainObject(raw, `studio component ${index + 1}`);
+    const type = cleanText(raw.type, 40).toLowerCase();
+    if (!STUDIO_COMPONENT_TYPES.has(type)) throw Object.assign(new Error(`Studio component ${index + 1} has an invalid type.`), { statusCode: 400 });
+    return {
+      id: safeRecordId(raw.id ?? randomUUID(), `studio component ${index + 1} id`),
+      type,
+      label: cleanOptionalText(raw.label ?? raw.title, 120),
+      content: cleanOptionalText(raw.content ?? raw.text, 2000),
+      target: cleanOptionalText(raw.target, 200),
+      url: raw.url ? safeHttpUrl(raw.url) : null,
+      order: index
+    };
+  });
+}
+
 export async function upsertStudioLayout(guildId, input = {}) {
   assertPlainObject(input, 'studio layout');
   const id = safeRecordId(input.id ?? randomUUID(), 'layout id');
@@ -195,19 +217,24 @@ export async function upsertStudioLayout(guildId, input = {}) {
   if (!name) throw Object.assign(new Error('layout name is required.'), { statusCode: 400 });
 
   return mutateNexusState(guildId, (nexus) => {
-    const current = nexus.studio.layouts[id] ?? { id, createdAt: new Date().toISOString(), version: 1 };
+    const current = nexus.studio.layouts[id] ?? { id, createdAt: new Date().toISOString(), version: 1, history: [] };
+    const components = sanitizeStudioComponents(input.components, current.components);
+    const editedPublishedLayout = current.status === 'published';
     const record = {
       ...current,
       id,
       name,
       type: cleanOptionalText(input.type ?? current.type, 80) ?? 'panel',
       target: cleanOptionalText(input.target ?? current.target, 200),
-      status: safeStatus(input.status ?? current.status, ['draft', 'published', 'archived'], 'draft'),
-      version: safeNumber(input.version ?? current.version, { min: 1, max: 1_000_000, fallback: 1 }),
-      publishedAt: cleanOptionalText(input.publishedAt ?? current.publishedAt, 64),
+      components,
+      status: editedPublishedLayout ? 'draft' : safeStatus(input.status ?? current.status, ['draft', 'published', 'archived'], 'draft'),
+      version: safeNumber(current.version ?? input.version, { min: 1, max: 1_000_000, fallback: 1 }),
+      history: Array.isArray(current.history) ? current.history.slice(-20) : [],
+      publishedAt: cleanOptionalText(current.publishedAt, 64),
       updatedAt: new Date().toISOString()
     };
     nexus.studio.layouts[id] = record;
+    nexus.studio.drafts[id] = { name: record.name, type: record.type, target: record.target, components: record.components, updatedAt: record.updatedAt };
     return record;
   });
 }
