@@ -18,8 +18,14 @@
     <main>
       <header class="topbar">
         <div><span class="eyebrow">KINGDOM CARRIES • CONTROL PLANE</span><h1 id="pageTitle">Kingdom Nexus</h1></div>
-        <div class="top-actions"><a class="ghost" href="/tv" target="_blank">TV MODE</a><button class="ghost" id="installBtn" hidden>INSTALL</button></div>
+        <div class="top-actions">
+          <span class="operator-state" id="operatorState">PUBLIC MODE</span>
+          <button class="ghost" id="adminBtn">ADMIN</button>
+          <a class="ghost" href="/tv" target="_blank" rel="noopener">TV MODE</a>
+          <button class="ghost" id="installBtn" hidden>INSTALL</button>
+        </div>
       </header>
+      <div class="notice" id="notice" hidden></div>
       <section id="hero" class="hero"></section>
       <section id="content" class="content-grid"></section>
     </main>
