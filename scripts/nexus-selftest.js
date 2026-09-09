@@ -4,11 +4,11 @@ import { FREE_RUNTIME_POLICY, NEXUS_PRODUCTS, NEXUS_VERSION } from '../src/nexus
 
 const failures = [];
 const root = process.cwd();
-const expectedIds = Array.from({ length: 19 }, (_, index) => index + 2);
+const expectedIds = Array.from({ length: 20 }, (_, index) => index + 1);
 const ids = NEXUS_PRODUCTS.map((product) => product.id);
-if (JSON.stringify(ids) !== JSON.stringify(expectedIds)) failures.push(`Nexus product IDs must be exactly 2-20; got ${ids.join(',')}`);
-if (new Set(NEXUS_PRODUCTS.map((product) => product.slug)).size !== 19) failures.push('Nexus product slugs are not unique.');
-if (NEXUS_VERSION !== '1.2.0') failures.push(`Expected Nexus 1.2.0; got ${NEXUS_VERSION}`);
+if (JSON.stringify(ids) !== JSON.stringify(expectedIds)) failures.push(`Kingdom system IDs must be exactly 1-20; got ${ids.join(',')}`);
+if (new Set(NEXUS_PRODUCTS.map((product) => product.slug)).size !== 20) failures.push('Kingdom system slugs are not unique.');
+if (NEXUS_VERSION !== '1.2.0') failures.push(`Unexpected internal Nexus schema/build marker: ${NEXUS_VERSION}`);
 if (FREE_RUNTIME_POLICY.requiredPaidServices !== 0) failures.push('Nexus free-runtime policy requires a paid service.');
 if (FREE_RUNTIME_POLICY.externalDatabaseRequired !== false || FREE_RUNTIME_POLICY.externalCacheRequired !== false) failures.push('Nexus must keep database/cache optional.');
 
@@ -61,7 +61,7 @@ if (!platform.includes('startMaintenanceLoop')) failures.push('Nexus background 
 if (!index.includes('startNexusPlatform')) failures.push('Kingdom Core does not start Kingdom Nexus.');
 if (!web.includes('operatorState') || !web.includes('adminBtn') || !web.includes('discordBtn')) failures.push('Nexus operator/Discord controls are missing.');
 if (!app.includes('beforeinstallprompt')) failures.push('Nexus PWA install flow is missing.');
-if (!app.includes('sessionStorage')) failures.push('Nexus fallback admin token must be session-scoped in the browser.');
+if (!app.includes('sessionStorage')) failures.push('Legacy Nexus fallback admin token must remain session-scoped in the legacy browser surface.');
 if (!app.includes('EventSource')) failures.push('Nexus browser live stream client is missing.');
 if (!authUi.includes('/api/me') || !authUi.includes('/auth/discord') || !authUi.includes('/auth/logout')) failures.push('Nexus Discord login UI bridge is incomplete.');
 if (!sdk.includes('streamLive') || !sdk.includes('saveBuild') || !sdk.includes('openIncident') || !sdk.includes('verifyBackups')) failures.push('Kingdom SDK does not expose the expanded Nexus platform.');
@@ -86,4 +86,4 @@ if (failures.length) {
   for (const failure of failures) console.error(`- ${failure}`);
   process.exit(1);
 }
-console.log('Kingdom Nexus 1.2 self-test passed: products 2-20, free runtime, Discord OAuth operator sessions, live SSE/TV, expanded SDK, Companion, Creator, Studio, Sentinel, verified Vault backups, Intelligence trends and low-memory maintenance verified.');
+console.log('Kingdom suite self-test passed: all 20 systems are registered with free runtime, Discord OAuth operator sessions, live SSE/TV, SDK, Companion, Creator, Studio, Sentinel, verified Vault backups, Intelligence trends and low-memory maintenance verified.');
