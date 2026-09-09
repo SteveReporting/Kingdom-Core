@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Kingdom Nexus">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#321822"/>
+      <stop offset="0.55" stop-color="#15131a"/>
+      <stop offset="1" stop-color="#0a0d12"/>
+    </linearGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f1d79a"/>
+      <stop offset="1" stop-color="#a97c31"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+  <path d="M117 172l53-62 53 45 33-72 33 72 53-45 53 62-34 201H151z" fill="none" stroke="url(#gold)" stroke-width="18" stroke-linejoin="round"/>
+  <path d="M192 205v133M320 205v133M192 271h128" stroke="url(#gold)" stroke-width="18" stroke-linecap="round"/>
+  <circle cx="256" cy="154" r="13" fill="#d8b56a"/>
+</svg>
