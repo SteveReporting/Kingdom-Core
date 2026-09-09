@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { NEXUS_PRODUCTS, FREE_RUNTIME_POLICY, NEXUS_VERSION, productBySlug } from './catalog.js';
-import { getNexusState, linkIdentity, upsertCreatorCampaign, upsertStudioLayout, upsertTenant } from './state.js';
+import { appendNexusAudit, getNexusState, linkIdentity, upsertCreatorCampaign, upsertStudioLayout, upsertTenant } from './state.js';
 import { readGuildState } from '../storage/store.js';
 import {
   buildIntelligenceSnapshot,
@@ -24,6 +24,15 @@ import {
   upsertCompanionBuild,
   upsertCompanionGuide
 } from './domain.js';
+import {
+  listAuditEvents,
+  removeCompanionBuild,
+  removeCompanionGuide,
+  removeCreatorCampaign,
+  removeStudioLayout,
+  removeTenant,
+  unlinkIdentity
+} from './lifecycle.js';
 import {
   completeDiscordOAuth,
   csrfTokenForRequest,
@@ -48,7 +57,7 @@ import {
 import { addApplicationReviewNote, finalizeApplicationReview } from './applicationOps.js';
 
 const WEB_ROOT = path.resolve('web', 'nexus');
-const OPERATOR_READS = new Set(['/api/identity', '/api/applications', '/api/vault', '/api/studio/layouts']);
+const OPERATOR_READS = new Set(['/api/identity', '/api/applications', '/api/vault', '/api/studio/layouts', '/api/audit']);
 const rateBuckets = new Map();
 let server = null;
 let maintenanceTimer = null;
@@ -92,9 +101,7 @@ function digest(value) {
 }
 
 function secureEqual(left, right) {
-  const a = digest(left);
-  const b = digest(right);
-  return timingSafeEqual(a, b);
+  return timingSafeEqual(digest(left), digest(right));
 }
 
 function isLoopback(address) {
@@ -131,9 +138,7 @@ function rateAllowed(req, scope, limit, windowMs) {
   }
   current.count += 1;
   if (rateBuckets.size > 10_000) {
-    for (const [bucketKey, bucket] of rateBuckets) {
-      if (bucket.resetAt <= now) rateBuckets.delete(bucketKey);
-    }
+    for (const [bucketKey, bucket] of rateBuckets) if (bucket.resetAt <= now) rateBuckets.delete(bucketKey);
   }
   return current.count <= limit;
 }
@@ -167,6 +172,32 @@ async function readBody(req, limit = 250_000) {
 function chosenGuild(client) {
   const configured = String(process.env.GUILD_ID ?? '').trim();
   return (configured && client.guilds.cache.get(configured)) || client.guilds.cache.first() || null;
+}
+
+function auditActor(req) {
+  const session = publicSession(req);
+  if (session?.user?.id) {
+    return {
+      actorId: session.user.id,
+      actorName: session.user.globalName ?? session.user.username ?? session.guildMember?.displayName ?? null
+    };
+  }
+  if (recoveryTokenAuthorized(req)) return { actorId: 'local-recovery', actorName: 'Local recovery operator' };
+  return { actorId: null, actorName: null };
+}
+
+async function recordAudit(guildId, req, action, targetType, targetId, detail = null) {
+  const actor = auditActor(req);
+  try {
+    await appendNexusAudit(guildId, { ...actor, action, targetType, targetId, detail, outcome: 'success' });
+  } catch (error) {
+    console.error('[Nexus] audit write failed:', error?.message ?? error);
+  }
+}
+
+async function auditedResult(res, guildId, req, action, targetType, targetId, result, detail = null) {
+  await recordAudit(guildId, req, action, targetType, targetId, detail);
+  return json(res, 200, result);
 }
 
 async function staticFile(res, requestPath) {
@@ -213,12 +244,14 @@ function openApiDocument() {
       'GET /api/openapi', 'GET /api/products/:slug', 'GET /api/sdk/kingdom-nexus.js'
     ],
     operator: [
-      'GET /api/identity', 'GET /api/applications', 'GET /api/vault', 'GET /api/studio/layouts',
+      'GET /api/identity', 'GET /api/applications', 'GET /api/vault', 'GET /api/studio/layouts', 'GET /api/audit',
       'GET /api/admin/state', 'GET /api/admin/vault/verify',
-      'POST /api/network/tenants', 'POST /api/identity/link',
-      'POST /api/companion/builds', 'POST /api/companion/guides',
-      'POST /api/creators/campaigns', 'POST /api/studio/layouts',
-      'POST /api/studio/layouts/:id/publish',
+      'POST /api/network/tenants', 'DELETE /api/network/tenants/:id',
+      'POST /api/identity/link', 'DELETE /api/identity/:discordId',
+      'POST /api/companion/builds', 'DELETE /api/companion/builds/:id',
+      'POST /api/companion/guides', 'DELETE /api/companion/guides/:id',
+      'POST /api/creators/campaigns', 'DELETE /api/creators/campaigns/:id',
+      'POST /api/studio/layouts', 'POST /api/studio/layouts/:id/publish', 'DELETE /api/studio/layouts/:id',
       'POST /api/sentinel/incidents', 'PATCH /api/sentinel/incidents/:id',
       'POST /api/applications/:id/notes', 'POST /api/applications/:id/review',
       'POST /api/vault/backup', 'POST /api/vault/restore', 'POST /api/ai'
@@ -269,21 +302,13 @@ async function apiHandler(req, res, client, url) {
   const guildId = guild?.id ?? String(process.env.GUILD_ID ?? '').trim();
   if (!guildId) return json(res, 503, { error: 'Kingdom Core is not ready.' });
 
-  if (req.method === 'GET' && url.pathname === '/health') {
-    return json(res, 200, { ok: true, product: 'Kingdom Nexus' });
-  }
+  if (req.method === 'GET' && url.pathname === '/health') return json(res, 200, { ok: true, product: 'Kingdom Nexus' });
   if (req.method === 'GET' && url.pathname === '/api/me') {
     const session = publicSession(req);
-    return json(res, 200, {
-      session,
-      csrfToken: session ? csrfTokenForRequest(req) : null,
-      discordOAuthConfigured: discordOAuthConfigured()
-    });
+    return json(res, 200, { session, csrfToken: session ? csrfTokenForRequest(req) : null, discordOAuthConfigured: discordOAuthConfigured() });
   }
 
-  if (!getNexusSession(req) && !recoveryTokenAuthorized(req)) {
-    return json(res, 401, { error: 'Sign in with Discord to access Kingdom Nexus.' });
-  }
+  if (!getNexusSession(req) && !recoveryTokenAuthorized(req)) return json(res, 401, { error: 'Sign in with Discord to access Kingdom Nexus.' });
 
   if (req.method === 'GET' && url.pathname === '/api/products') return json(res, 200, { products: NEXUS_PRODUCTS, freeRuntime: FREE_RUNTIME_POLICY });
   if (req.method === 'GET' && url.pathname === '/api/openapi') return json(res, 200, openApiDocument());
@@ -334,49 +359,45 @@ async function apiHandler(req, res, client, url) {
     const state = await readGuildState(guildId);
     return json(res, 200, buildNetworkPayload(nexus, guild, state));
   }
-
   if (req.method === 'GET' && url.pathname === '/api/companion') {
     const nexus = await getNexusState(guildId);
     const state = await readGuildState(guildId);
     return json(res, 200, buildCompanionPayload(nexus, state));
   }
-
   if (req.method === 'GET' && url.pathname === '/api/creators') {
     const nexus = await getNexusState(guildId);
     return json(res, 200, buildCreatorsPayload(nexus));
   }
 
-  if (req.method === 'GET' && OPERATOR_READS.has(url.pathname) && !adminAuthorized(req)) {
-    return json(res, 403, { error: 'Operator access is required.' });
-  }
+  if (req.method === 'GET' && OPERATOR_READS.has(url.pathname) && !adminAuthorized(req)) return json(res, 403, { error: 'Operator access is required.' });
 
   if (req.method === 'GET' && url.pathname === '/api/identity') {
     const nexus = await getNexusState(guildId);
     const state = await readGuildState(guildId);
     return json(res, 200, buildIdentityPayload(guild, nexus, state));
   }
-
   if (req.method === 'GET' && url.pathname === '/api/applications') {
     const state = await readGuildState(guildId);
     return json(res, 200, buildApplicationsPayload(state, guild));
   }
-
   if (req.method === 'GET' && url.pathname === '/api/vault') {
     const nexus = await getNexusState(guildId);
     const verification = await verifyVaultBackups(guildId);
     return json(res, 200, buildVaultPayload(nexus, verification));
   }
-
   if (req.method === 'GET' && url.pathname === '/api/studio/layouts') {
     const nexus = await getNexusState(guildId);
     return json(res, 200, buildStudioPayload(nexus));
+  }
+  if (req.method === 'GET' && url.pathname === '/api/audit') {
+    const limit = Number(url.searchParams.get('limit') ?? 200);
+    return json(res, 200, { events: await listAuditEvents(guildId, limit) });
   }
 
   if (req.method === 'GET' && url.pathname.startsWith('/api/products/')) {
     const product = productBySlug(url.pathname.split('/').pop());
     return product ? json(res, 200, product) : json(res, 404, { error: 'Unknown product.' });
   }
-
   if (req.method === 'GET' && url.pathname === '/api/sdk/kingdom-nexus.js') {
     const sdk = await fs.readFile(path.resolve('src', 'nexus', 'sdk-browser.js'), 'utf8');
     return text(res, 200, sdk, 'text/javascript; charset=utf-8');
@@ -384,15 +405,9 @@ async function apiHandler(req, res, client, url) {
 
   const isAdminPath = url.pathname.startsWith('/api/admin/');
   const isWrite = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method);
-  if ((isAdminPath || isWrite) && !adminAuthorized(req)) {
-    return json(res, 403, { error: 'Operator access is required.' });
-  }
-  if (isWrite && !rateAllowed(req, 'write', 60, 60_000)) {
-    return json(res, 429, { error: 'Too many operator requests. Try again shortly.' });
-  }
-  if (isWrite && !validBrowserWrite(req)) {
-    return json(res, 403, { error: 'Security validation failed. Refresh Nexus and try again.' });
-  }
+  if ((isAdminPath || isWrite) && !adminAuthorized(req)) return json(res, 403, { error: 'Operator access is required.' });
+  if (isWrite && !rateAllowed(req, 'write', 60, 60_000)) return json(res, 429, { error: 'Too many operator requests. Try again shortly.' });
+  if (isWrite && !validBrowserWrite(req)) return json(res, 403, { error: 'Security validation failed. Refresh Nexus and try again.' });
 
   if (req.method === 'GET' && url.pathname === '/api/admin/state') {
     const nexus = await getNexusState(guildId);
@@ -403,37 +418,120 @@ async function apiHandler(req, res, client, url) {
     return json(res, 200, { backups, verified: backups.filter((item) => item.verified).length, total: backups.length });
   }
 
-  if (req.method === 'POST' && url.pathname === '/api/network/tenants') return json(res, 200, await upsertTenant(guildId, await readBody(req)));
-  if (req.method === 'POST' && url.pathname === '/api/identity/link') return json(res, 200, await linkIdentity(guildId, await readBody(req)));
-  if (req.method === 'POST' && url.pathname === '/api/companion/builds') return json(res, 200, await upsertCompanionBuild(guildId, await readBody(req)));
-  if (req.method === 'POST' && url.pathname === '/api/companion/guides') return json(res, 200, await upsertCompanionGuide(guildId, await readBody(req)));
-  if (req.method === 'POST' && url.pathname === '/api/creators/campaigns') return json(res, 200, await upsertCreatorCampaign(guildId, await readBody(req)));
-  if (req.method === 'POST' && url.pathname === '/api/studio/layouts') return json(res, 200, await upsertStudioLayout(guildId, await readBody(req)));
+  if (req.method === 'POST' && url.pathname === '/api/network/tenants') {
+    const body = await readBody(req);
+    const result = await upsertTenant(guildId, body);
+    return auditedResult(res, guildId, req, 'network.tenant.upsert', 'tenant', result.id, result);
+  }
+  const tenantDelete = url.pathname.match(/^\/api\/network\/tenants\/([^/]+)$/);
+  if (req.method === 'DELETE' && tenantDelete) {
+    const id = decodeURIComponent(tenantDelete[1]);
+    const removed = await removeTenant(guildId, id);
+    return auditedResult(res, guildId, req, 'network.tenant.delete', 'tenant', id, { ok: true, removed });
+  }
 
+  if (req.method === 'POST' && url.pathname === '/api/identity/link') {
+    const body = await readBody(req);
+    const result = await linkIdentity(guildId, body);
+    return auditedResult(res, guildId, req, 'identity.link', 'identity', result.discordId, result);
+  }
+  const identityDelete = url.pathname.match(/^\/api\/identity\/([^/]+)$/);
+  if (req.method === 'DELETE' && identityDelete) {
+    const id = decodeURIComponent(identityDelete[1]);
+    const removed = await unlinkIdentity(guildId, id);
+    return auditedResult(res, guildId, req, 'identity.unlink', 'identity', id, { ok: true, removed });
+  }
+
+  if (req.method === 'POST' && url.pathname === '/api/companion/builds') {
+    const result = await upsertCompanionBuild(guildId, await readBody(req));
+    return auditedResult(res, guildId, req, 'companion.build.upsert', 'build', result.id, result);
+  }
+  const buildDelete = url.pathname.match(/^\/api\/companion\/builds\/([^/]+)$/);
+  if (req.method === 'DELETE' && buildDelete) {
+    const id = decodeURIComponent(buildDelete[1]);
+    const removed = await removeCompanionBuild(guildId, id);
+    return auditedResult(res, guildId, req, 'companion.build.delete', 'build', id, { ok: true, removed });
+  }
+
+  if (req.method === 'POST' && url.pathname === '/api/companion/guides') {
+    const result = await upsertCompanionGuide(guildId, await readBody(req));
+    return auditedResult(res, guildId, req, 'companion.guide.upsert', 'guide', result.id, result);
+  }
+  const guideDelete = url.pathname.match(/^\/api\/companion\/guides\/([^/]+)$/);
+  if (req.method === 'DELETE' && guideDelete) {
+    const id = decodeURIComponent(guideDelete[1]);
+    const removed = await removeCompanionGuide(guildId, id);
+    return auditedResult(res, guildId, req, 'companion.guide.delete', 'guide', id, { ok: true, removed });
+  }
+
+  if (req.method === 'POST' && url.pathname === '/api/creators/campaigns') {
+    const result = await upsertCreatorCampaign(guildId, await readBody(req));
+    return auditedResult(res, guildId, req, 'creator.campaign.upsert', 'campaign', result.id, result);
+  }
+  const campaignDelete = url.pathname.match(/^\/api\/creators\/campaigns\/([^/]+)$/);
+  if (req.method === 'DELETE' && campaignDelete) {
+    const id = decodeURIComponent(campaignDelete[1]);
+    const removed = await removeCreatorCampaign(guildId, id);
+    return auditedResult(res, guildId, req, 'creator.campaign.delete', 'campaign', id, { ok: true, removed });
+  }
+
+  if (req.method === 'POST' && url.pathname === '/api/studio/layouts') {
+    const result = await upsertStudioLayout(guildId, await readBody(req));
+    return auditedResult(res, guildId, req, 'studio.layout.upsert', 'layout', result.id, result);
+  }
   const studioPublish = url.pathname.match(/^\/api\/studio\/layouts\/([^/]+)\/publish$/);
-  if (req.method === 'POST' && studioPublish) return json(res, 200, await publishStudioLayout(guildId, decodeURIComponent(studioPublish[1])));
+  if (req.method === 'POST' && studioPublish) {
+    const id = decodeURIComponent(studioPublish[1]);
+    const result = await publishStudioLayout(guildId, id);
+    return auditedResult(res, guildId, req, 'studio.layout.publish', 'layout', id, result);
+  }
+  const layoutDelete = url.pathname.match(/^\/api\/studio\/layouts\/([^/]+)$/);
+  if (req.method === 'DELETE' && layoutDelete) {
+    const id = decodeURIComponent(layoutDelete[1]);
+    const removed = await removeStudioLayout(guildId, id);
+    return auditedResult(res, guildId, req, 'studio.layout.delete', 'layout', id, { ok: true, removed });
+  }
 
-  if (req.method === 'POST' && url.pathname === '/api/sentinel/incidents') return json(res, 200, await createSentinelIncident(guildId, await readBody(req)));
+  if (req.method === 'POST' && url.pathname === '/api/sentinel/incidents') {
+    const result = await createSentinelIncident(guildId, await readBody(req));
+    return auditedResult(res, guildId, req, 'sentinel.incident.create', 'incident', result.id, result);
+  }
   const incidentPatch = url.pathname.match(/^\/api\/sentinel\/incidents\/([^/]+)$/);
-  if (req.method === 'PATCH' && incidentPatch) return json(res, 200, await updateSentinelIncident(guildId, decodeURIComponent(incidentPatch[1]), await readBody(req)));
+  if (req.method === 'PATCH' && incidentPatch) {
+    const id = decodeURIComponent(incidentPatch[1]);
+    const result = await updateSentinelIncident(guildId, id, await readBody(req));
+    return auditedResult(res, guildId, req, 'sentinel.incident.update', 'incident', id, result, result.status ?? null);
+  }
 
   const applicationNotes = url.pathname.match(/^\/api\/applications\/([^/]+)\/notes$/);
   if (req.method === 'POST' && applicationNotes) {
+    const id = decodeURIComponent(applicationNotes[1]);
     const body = await readBody(req);
-    return json(res, 200, await addApplicationReviewNote(guildId, decodeURIComponent(applicationNotes[1]), reviewerId(req, client), body.text ?? body.note));
+    const result = await addApplicationReviewNote(guildId, id, reviewerId(req, client), body.text ?? body.note);
+    return auditedResult(res, guildId, req, 'application.note.add', 'application', id, result);
   }
-
   const applicationReview = url.pathname.match(/^\/api\/applications\/([^/]+)\/review$/);
   if (req.method === 'POST' && applicationReview) {
     if (!guild) return json(res, 503, { error: 'Discord guild is unavailable.' });
-    return json(res, 200, await finalizeApplicationReview(guild, decodeURIComponent(applicationReview[1]), reviewerId(req, client), await readBody(req)));
+    const id = decodeURIComponent(applicationReview[1]);
+    const body = await readBody(req);
+    const result = await finalizeApplicationReview(guild, id, reviewerId(req, client), body);
+    return auditedResult(res, guildId, req, 'application.review.finalize', 'application', id, result, body.decision ?? null);
   }
 
-  if (req.method === 'POST' && url.pathname === '/api/vault/backup') return json(res, 200, await createVaultBackup(guildId));
-  if (req.method === 'POST' && url.pathname === '/api/vault/restore') return json(res, 200, await restoreVaultBackup(guildId, await readBody(req)));
+  if (req.method === 'POST' && url.pathname === '/api/vault/backup') {
+    const result = await createVaultBackup(guildId);
+    return auditedResult(res, guildId, req, 'vault.backup.create', 'backup', result.file, result);
+  }
+  if (req.method === 'POST' && url.pathname === '/api/vault/restore') {
+    const body = await readBody(req);
+    const result = await restoreVaultBackup(guildId, body);
+    return auditedResult(res, guildId, req, 'vault.backup.restore', 'backup', body.file ?? result.file ?? null, result);
+  }
   if (req.method === 'POST' && url.pathname === '/api/ai') {
     const body = await readBody(req);
     const answer = await callLocalKingdomAi(body.prompt ?? '', body.context ?? {});
+    await recordAudit(guildId, req, 'ai.query', 'ai', null, `promptLength=${String(body.prompt ?? '').length}`);
     return json(res, 200, { answer });
   }
 
