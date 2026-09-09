@@ -1,11 +1,20 @@
 {
   "name": "Kingdom Nexus",
   "short_name": "Nexus",
-  "description": "Kingdom Carries unified control plane.",
-  "start_url": "/",
+  "description": "Kingdom Carries unified control plane, launcher and live operations platform.",
+  "start_url": "/?view=nexus",
   "scope": "/",
   "display": "standalone",
+  "orientation": "any",
   "background_color": "#080a0f",
   "theme_color": "#0b0d12",
-  "categories": ["utilities", "productivity", "social"]
+  "categories": ["utilities", "productivity", "social"],
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Live Operations", "short_name": "Live", "url": "/?view=live" },
+    { "name": "Kingdom Launcher", "short_name": "Launcher", "url": "/?view=launcher" },
+    { "name": "Kingdom TV", "short_name": "TV", "url": "/tv" }
+  ]
 }
