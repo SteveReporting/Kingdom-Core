@@ -2,6 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { mutateGuildState, readGuildState } from '../storage/store.js';
 import { NEXUS_PRODUCTS, NEXUS_VERSION } from './catalog.js';
 
+const MAX_AUDIT_EVENTS = 500;
+
 function blankNexus() {
   return {
     schema: 1,
@@ -18,6 +20,7 @@ function blankNexus() {
     vault: { backups: [] },
     intelligence: { snapshots: [], lastSnapshot: null },
     ai: { enabled: false, provider: 'local', lastRequestAt: null, lastError: null },
+    audit: [],
     integrations: {},
     flags: { lowMemoryMode: true }
   };
@@ -48,6 +51,9 @@ export function ensureNexusState(state) {
   state.nexus.intelligence ??= { snapshots: [], lastSnapshot: null };
   state.nexus.intelligence.snapshots ??= [];
   state.nexus.ai ??= { enabled: false, provider: 'local', lastRequestAt: null, lastError: null };
+  state.nexus.audit ??= [];
+  if (!Array.isArray(state.nexus.audit)) state.nexus.audit = [];
+  if (state.nexus.audit.length > MAX_AUDIT_EVENTS) state.nexus.audit.splice(0, state.nexus.audit.length - MAX_AUDIT_EVENTS);
   state.nexus.integrations ??= {};
   state.nexus.flags ??= { lowMemoryMode: true };
   state.nexus.updatedAt = new Date().toISOString();
@@ -65,6 +71,25 @@ export async function mutateNexusState(guildId, mutator) {
     const result = await mutator(nexus, state);
     nexus.updatedAt = new Date().toISOString();
     return result;
+  });
+}
+
+export async function appendNexusAudit(guildId, event = {}) {
+  return mutateNexusState(guildId, (nexus) => {
+    const record = {
+      id: String(event.id ?? randomUUID()),
+      at: new Date().toISOString(),
+      actorId: event.actorId ? String(event.actorId) : null,
+      actorName: event.actorName ? String(event.actorName).slice(0, 120) : null,
+      action: String(event.action ?? 'unknown').slice(0, 120),
+      targetType: event.targetType ? String(event.targetType).slice(0, 80) : null,
+      targetId: event.targetId ? String(event.targetId).slice(0, 200) : null,
+      outcome: String(event.outcome ?? 'success').slice(0, 40),
+      detail: event.detail ? String(event.detail).slice(0, 1000) : null
+    };
+    nexus.audit.push(record);
+    if (nexus.audit.length > MAX_AUDIT_EVENTS) nexus.audit.splice(0, nexus.audit.length - MAX_AUDIT_EVENTS);
+    return record;
   });
 }
 
