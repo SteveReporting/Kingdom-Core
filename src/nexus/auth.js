@@ -7,6 +7,7 @@ const SECURE_SESSION_COOKIE = '__Host-kingdom_nexus_session';
 const LOCAL_SESSION_COOKIE = 'kingdom_nexus_session';
 const STATE_TTL_MS = 5 * 60_000;
 const SESSION_TTL_MS = 4 * 60 * 60_000;
+const SESSION_REVALIDATE_MS = 30_000;
 const MAX_PENDING_STATES = 2_000;
 const MAX_SESSIONS = 2_000;
 
@@ -103,6 +104,16 @@ function csvIds(value) {
   );
 }
 
+function operatorForMember(member, userId) {
+  if (!member) return false;
+  const roleAllowlist = csvIds(process.env.KINGDOM_NEXUS_OPERATOR_ROLE_IDS);
+  const userAllowlist = csvIds(process.env.KINGDOM_NEXUS_OPERATOR_USER_IDS);
+  const permissionOperator = member.permissions.has(PermissionFlagsBits.Administrator) || member.permissions.has(PermissionFlagsBits.ManageGuild);
+  const roleOperator = [...roleAllowlist].some((roleId) => member.roles.cache.has(roleId));
+  const userOperator = userAllowlist.has(String(userId));
+  return permissionOperator || roleOperator || userOperator;
+}
+
 export function getNexusSession(req) {
   prune();
   const id = sessionIdFromRequest(req);
@@ -112,6 +123,38 @@ export function getNexusSession(req) {
     sessions.delete(id);
     return null;
   }
+  return session;
+}
+
+export async function revalidateNexusSession(req, guild) {
+  const session = getNexusSession(req);
+  if (!session) return null;
+
+  // Fail closed if Discord is unavailable. The session record is retained so a
+  // transient reconnect does not force a new OAuth flow, but it cannot be used
+  // until guild membership can be verified again.
+  if (!guild) return null;
+
+  const now = Date.now();
+  let member = guild.members.cache.get(String(session.user?.id ?? '')) ?? null;
+  const stale = now - Number(session.lastValidatedAt ?? 0) >= SESSION_REVALIDATE_MS;
+  if (!member || stale) {
+    member = await guild.members.fetch(String(session.user?.id ?? '')).catch(() => null);
+  }
+  if (!member) {
+    if (session.id) sessions.delete(session.id);
+    return null;
+  }
+
+  const wasOperator = Boolean(session.operator);
+  const operator = operatorForMember(member, session.user.id);
+  session.guildMember = { id: member.id, displayName: member.displayName };
+  session.operator = operator;
+  session.lastValidatedAt = now;
+
+  // If elevated access was revoked, rotate CSRF material immediately so an
+  // already-open operator page cannot replay a previously issued write token.
+  if (wasOperator && !operator) session.csrfToken = token(24);
   return session;
 }
 
@@ -251,12 +294,7 @@ export async function completeDiscordOAuth(req, res, url, guild) {
     return;
   }
 
-  const roleAllowlist = csvIds(process.env.KINGDOM_NEXUS_OPERATOR_ROLE_IDS);
-  const userAllowlist = csvIds(process.env.KINGDOM_NEXUS_OPERATOR_USER_IDS);
-  const permissionOperator = member.permissions.has(PermissionFlagsBits.Administrator) || member.permissions.has(PermissionFlagsBits.ManageGuild);
-  const roleOperator = [...roleAllowlist].some((roleId) => member.roles.cache.has(roleId));
-  const userOperator = userAllowlist.has(String(user.id));
-  const operator = permissionOperator || roleOperator || userOperator;
+  const operator = operatorForMember(member, user.id);
 
   for (const [sessionId, existing] of sessions) {
     if (existing.user?.id === String(user.id)) sessions.delete(sessionId);
@@ -267,6 +305,7 @@ export async function completeDiscordOAuth(req, res, url, guild) {
     id,
     csrfToken: token(24),
     createdAt: Date.now(),
+    lastValidatedAt: Date.now(),
     expiresAt: Date.now() + SESSION_TTL_MS,
     user: {
       id: String(user.id),
