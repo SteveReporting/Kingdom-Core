@@ -4,7 +4,14 @@ import path from 'node:path';
 import { NEXUS_PRODUCTS, FREE_RUNTIME_POLICY, NEXUS_VERSION, productBySlug } from './catalog.js';
 import { getNexusState, linkIdentity, upsertCreatorCampaign, upsertStudioLayout, upsertTenant } from './state.js';
 import { readGuildState } from '../storage/store.js';
-import { buildIntelligenceSnapshot, buildSentinelSnapshot, callLocalKingdomAi, createVaultBackup } from './ops.js';
+import {
+  buildIntelligenceSnapshot,
+  buildSentinelSnapshot,
+  callLocalKingdomAi,
+  createVaultBackup,
+  runNexusMaintenance,
+  verifyVaultBackups
+} from './ops.js';
 import {
   buildAdminSnapshot,
   buildTrendSummary,
@@ -17,6 +24,8 @@ import {
 
 const WEB_ROOT = path.resolve('web', 'nexus');
 let server = null;
+let maintenanceTimer = null;
+let initialMaintenanceTimer = null;
 
 function baseHeaders(extra = {}) {
   return {
@@ -129,7 +138,7 @@ function openApiDocument() {
       'GET /api/products/:slug', 'GET /api/sdk/kingdom-nexus.js'
     ],
     admin: [
-      'GET /api/admin/state',
+      'GET /api/admin/state', 'GET /api/admin/vault/verify',
       'POST /api/network/tenants', 'POST /api/identity/link',
       'POST /api/companion/builds', 'POST /api/companion/guides',
       'POST /api/creators/campaigns', 'POST /api/studio/layouts',
@@ -250,6 +259,10 @@ async function apiHandler(req, res, client, url) {
     const nexus = await getNexusState(guildId);
     return json(res, 200, buildAdminSnapshot(nexus));
   }
+  if (req.method === 'GET' && url.pathname === '/api/admin/vault/verify') {
+    const backups = await verifyVaultBackups(guildId);
+    return json(res, 200, { backups, verified: backups.filter((item) => item.verified).length, total: backups.length });
+  }
 
   if (req.method === 'POST' && url.pathname === '/api/network/tenants') return json(res, 200, await upsertTenant(guildId, await readBody(req)));
   if (req.method === 'POST' && url.pathname === '/api/identity/link') return json(res, 200, await linkIdentity(guildId, await readBody(req)));
@@ -273,6 +286,20 @@ async function apiHandler(req, res, client, url) {
   }
 
   return json(res, 404, { error: 'Not found.' });
+}
+
+function startMaintenanceLoop(client) {
+  if (maintenanceTimer) return;
+  const pass = async () => {
+    for (const guild of client.guilds.cache.values()) {
+      await runNexusMaintenance(guild).catch((error) => console.error(`[Nexus] maintenance failed for ${guild.name}:`, error.message));
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+  };
+  initialMaintenanceTimer = setTimeout(() => pass().catch(() => null), 30_000);
+  initialMaintenanceTimer.unref?.();
+  maintenanceTimer = setInterval(() => pass().catch(() => null), 5 * 60_000);
+  maintenanceTimer.unref?.();
 }
 
 export async function startNexusPlatform(client) {
@@ -304,10 +331,15 @@ export async function startNexusPlatform(client) {
   });
   server.listen(port, host, () => console.log(`[Nexus] Kingdom Nexus available at http://${host}:${port}`));
   server.unref?.();
+  startMaintenanceLoop(client);
   return server;
 }
 
 export function stopNexusPlatform() {
+  if (initialMaintenanceTimer) clearTimeout(initialMaintenanceTimer);
+  if (maintenanceTimer) clearInterval(maintenanceTimer);
+  initialMaintenanceTimer = null;
+  maintenanceTimer = null;
   if (!server) return;
   server.close();
   server = null;
