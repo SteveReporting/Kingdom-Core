@@ -1,4 +1,4 @@
-import { mutateNexusState } from './state.js';
+import { getNexusState, mutateNexusState } from './state.js';
 
 function requireId(value, label = 'id') {
   const id = String(value ?? '').trim();
@@ -69,5 +69,6 @@ export async function removeStudioLayout(guildId, id) {
 
 export async function listAuditEvents(guildId, limit = 200) {
   const safeLimit = Math.max(1, Math.min(500, Number(limit) || 200));
-  return mutateNexusState(guildId, (nexus) => [...(nexus.audit ?? [])].slice(-safeLimit).reverse());
+  const nexus = await getNexusState(guildId);
+  return [...(nexus.audit ?? [])].slice(-safeLimit).reverse();
 }
