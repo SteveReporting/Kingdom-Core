@@ -5,9 +5,13 @@ on:
     branches: [main]
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   syntax:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -17,6 +21,8 @@ jobs:
           node-version: '22'
       - name: Install dependencies
         run: npm install --no-audit --no-fund
+      - name: Audit production dependencies
+        run: npm run audit:prod
       - name: Syntax check
         run: npm run check
       - name: Import UIpgrade
@@ -36,7 +42,7 @@ jobs:
           node -e "Promise.all([import('./src/services/platformV4.js'),import('./src/services/platformV4Runtime.js'),import('./src/services/platformV4Interactions.js'),import('./src/services/platformV4Complete.js'),import('./src/services/platformV4Automation.js'),import('./src/services/platformV5.js'),import('./src/services/platformV10.js'),import('./src/services/realmEnginesV10.js'),import('./src/services/realmRuntimeV10.js'),import('./src/services/realmIntelligenceV10.js'),import('./src/services/realmIntelligenceRuntimeV10.js'),import('./src/services/platformApiV4.js'),import('./src/services/externalInfraV4.js'),import('./src/services/communityV4.js'),import('./src/services/securityV4.js'),import('./src/ui/kingdomV4Ui.js'),import('./src/ui/realmUiVNext.js')]).then(()=>console.log('platform imports OK'))"
       - name: Import Kingdom Nexus
         run: |
-          node -e "Promise.all([import('./src/nexus/catalog.js'),import('./src/nexus/state.js'),import('./src/nexus/domain.js'),import('./src/nexus/ops.js'),import('./src/nexus/auth.js'),import('./src/nexus/platform.js'),import('./src/nexus/sdk-browser.js')]).then(()=>console.log('Kingdom Nexus imports OK'))"
+          node -e "Promise.all([import('./src/nexus/catalog.js'),import('./src/nexus/validation.js'),import('./src/nexus/state.js'),import('./src/nexus/domain.js'),import('./src/nexus/lifecycle.js'),import('./src/nexus/ops.js'),import('./src/nexus/auth.js'),import('./src/nexus/applicationOps.js'),import('./src/nexus/platform.js'),import('./src/nexus/sdk-browser.js')]).then(()=>console.log('Kingdom Nexus imports OK'))"
       - name: UIpgrade self-test
         run: npm run selftest:uipgrade
       - name: setup3 organizer self-test
