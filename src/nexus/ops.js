@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { PermissionFlagsBits } from 'discord.js';
-import { readGuildState } from '../storage/store.js';
+import { mutateGuildState, readGuildState } from '../storage/store.js';
 import { mutateNexusState } from './state.js';
 
 const VAULT_ROOT = path.resolve('data', 'vault');
@@ -10,6 +10,7 @@ const lastMaintenance = new Map();
 const lastAutoBackup = new Map();
 const MAINTENANCE_INTERVAL_MS = Math.max(15 * 60_000, Number(process.env.KINGDOM_NEXUS_MAINTENANCE_MS ?? 15 * 60_000));
 const AUTO_BACKUP_INTERVAL_MS = Math.max(6 * 60 * 60_000, Number(process.env.KINGDOM_NEXUS_BACKUP_MS ?? 6 * 60 * 60_000));
+const MAX_RESTORE_BYTES = 25 * 1024 * 1024;
 
 function count(value) {
   if (Array.isArray(value)) return value.length;
@@ -23,6 +24,30 @@ function sha256(buffer) {
 
 function runtime(status, detail, enabled = true) {
   return { enabled, status, detail, checkedAt: new Date().toISOString() };
+}
+
+function httpError(message, statusCode) {
+  return Object.assign(new Error(message), { statusCode });
+}
+
+function validateRestoredState(snapshot) {
+  if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) throw httpError('Vault snapshot is not a valid guild state object.', 409);
+  const blocked = new Set(['__proto__', 'prototype', 'constructor']);
+  const stack = [{ value: snapshot, depth: 0 }];
+  let visited = 0;
+  while (stack.length) {
+    const current = stack.pop();
+    if (!current || !current.value || typeof current.value !== 'object') continue;
+    if (current.depth > 80) throw httpError('Vault snapshot structure is too deeply nested.', 409);
+    if (++visited > 100_000) throw httpError('Vault snapshot structure is too large.', 409);
+    for (const [key, value] of Object.entries(current.value)) {
+      if (blocked.has(key)) throw httpError('Vault snapshot contains an unsafe object key.', 409);
+      if (value && typeof value === 'object') stack.push({ value, depth: current.depth + 1 });
+    }
+  }
+  if (snapshot.queue !== undefined && !Array.isArray(snapshot.queue)) throw httpError('Vault snapshot queue is malformed.', 409);
+  if (snapshot.tickets !== undefined && (typeof snapshot.tickets !== 'object' || Array.isArray(snapshot.tickets))) throw httpError('Vault snapshot tickets are malformed.', 409);
+  return snapshot;
 }
 
 export async function refreshSystemReadiness(guild) {
@@ -180,6 +205,69 @@ export async function verifyVaultBackups(guildId) {
     }
   }
   return results;
+}
+
+export async function restoreVaultBackup(guildId, input = {}) {
+  if (String(input.confirm ?? '') !== 'RESTORE') throw httpError('Vault restore requires explicit RESTORE confirmation.', 400);
+
+  const current = await readGuildState(guildId);
+  const records = current.nexus?.vault?.backups ?? [];
+  const requestedFile = String(input.file ?? '').trim();
+  const requestedChecksum = String(input.sha256 ?? input.checksum ?? '').trim().toLowerCase();
+  const record = records.find((item) =>
+    (requestedFile && String(item.file ?? '') === requestedFile) ||
+    (requestedChecksum && String(item.sha256 ?? '').toLowerCase() === requestedChecksum)
+  );
+  if (!record) throw httpError('Vault backup record was not found.', 404);
+
+  const folder = path.resolve(VAULT_ROOT, guildId);
+  const full = path.resolve(String(record.file ?? ''));
+  const relative = path.relative(folder, full);
+  if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) throw httpError('Vault backup path is invalid.', 409);
+
+  const bytes = await fs.readFile(full).catch((error) => {
+    throw httpError(`Vault backup could not be read: ${error.code ?? 'read-failed'}`, 409);
+  });
+  if (bytes.length > MAX_RESTORE_BYTES) throw httpError('Vault backup exceeds the restore size limit.', 413);
+
+  const digest = sha256(bytes);
+  if (record.sha256 && String(record.sha256).toLowerCase() !== digest.toLowerCase()) throw httpError('Vault backup checksum verification failed.', 409);
+  if (requestedChecksum && requestedChecksum !== digest.toLowerCase()) throw httpError('Requested checksum does not match the Vault backup.', 409);
+
+  let snapshot;
+  try {
+    snapshot = JSON.parse(bytes.toString('utf8'));
+  } catch {
+    throw httpError('Vault backup is not valid JSON.', 409);
+  }
+  validateRestoredState(snapshot);
+
+  const safetyBackup = await createVaultBackup(guildId, { automatic: false });
+  const beforeRestore = await readGuildState(guildId);
+  const preservedBackups = [...(beforeRestore.nexus?.vault?.backups ?? [])];
+  const restoredAt = new Date().toISOString();
+
+  await mutateGuildState(guildId, (state) => {
+    for (const key of Object.keys(state)) delete state[key];
+    for (const [key, value] of Object.entries(snapshot)) state[key] = value;
+    state.nexus ??= {};
+    state.nexus.vault ??= {};
+    state.nexus.vault.backups = preservedBackups;
+    state.nexus.vault.lastRestore = {
+      at: restoredAt,
+      sourceFile: record.file,
+      sourceSha256: digest,
+      safetyBackup: safetyBackup.file
+    };
+    return state.nexus.vault.lastRestore;
+  });
+
+  return {
+    restored: true,
+    restoredAt,
+    source: { file: record.file, sha256: digest, bytes: bytes.length },
+    safetyBackup
+  };
 }
 
 export async function callLocalKingdomAi(prompt, context = {}) {
