@@ -5,6 +5,8 @@ const oauthStates = new Map();
 const sessions = new Map();
 const SECURE_SESSION_COOKIE = '__Host-kingdom_nexus_session';
 const LOCAL_SESSION_COOKIE = 'kingdom_nexus_session';
+const SECURE_OAUTH_STATE_COOKIE = '__Host-kingdom_nexus_oauth_state';
+const LOCAL_OAUTH_STATE_COOKIE = 'kingdom_nexus_oauth_state';
 const STATE_TTL_MS = 5 * 60_000;
 const SESSION_TTL_MS = 4 * 60 * 60_000;
 const SESSION_REVALIDATE_MS = 30_000;
@@ -39,6 +41,10 @@ function sessionCookieName() {
   return secureCookie() ? SECURE_SESSION_COOKIE : LOCAL_SESSION_COOKIE;
 }
 
+function oauthStateCookieName() {
+  return secureCookie() ? SECURE_OAUTH_STATE_COOKIE : LOCAL_OAUTH_STATE_COOKIE;
+}
+
 function parseCookies(req) {
   const raw = String(req.headers.cookie ?? '');
   const out = {};
@@ -62,22 +68,45 @@ function sessionIdFromRequest(req) {
   return cookies[SECURE_SESSION_COOKIE] ?? cookies[LOCAL_SESSION_COOKIE] ?? null;
 }
 
+function oauthStateFromRequest(req) {
+  const cookies = parseCookies(req);
+  return cookies[SECURE_OAUTH_STATE_COOKIE] ?? cookies[LOCAL_OAUTH_STATE_COOKIE] ?? null;
+}
+
+function appendSetCookie(res, value) {
+  const existing = res.getHeader('set-cookie');
+  if (!existing) return res.setHeader('set-cookie', value);
+  const values = Array.isArray(existing) ? [...existing] : [String(existing)];
+  values.push(value);
+  res.setHeader('set-cookie', values);
+}
+
+function cookieSecuritySuffix() {
+  return secureCookie() ? '; Secure' : '';
+}
+
 function setSessionCookie(res, value, maxAgeSeconds) {
-  const name = sessionCookieName();
-  const secure = secureCookie() ? '; Secure' : '';
-  res.setHeader(
-    'set-cookie',
-    `${name}=${encodeURIComponent(value)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${maxAgeSeconds}; Priority=High${secure}`
+  appendSetCookie(
+    res,
+    `${sessionCookieName()}=${encodeURIComponent(value)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${maxAgeSeconds}; Priority=High${cookieSecuritySuffix()}`
   );
 }
 
+function setOAuthStateCookie(res, value) {
+  appendSetCookie(
+    res,
+    `${oauthStateCookieName()}=${encodeURIComponent(value)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${Math.floor(STATE_TTL_MS / 1000)}; Priority=High${cookieSecuritySuffix()}`
+  );
+}
+
+function clearOAuthStateCookie(res) {
+  appendSetCookie(res, `${SECURE_OAUTH_STATE_COOKIE}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0; Priority=High; Secure`);
+  appendSetCookie(res, `${LOCAL_OAUTH_STATE_COOKIE}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0; Priority=High${cookieSecuritySuffix()}`);
+}
+
 function clearSessionCookie(res) {
-  const secure = secureCookie() ? '; Secure' : '';
-  const expired = [
-    `${SECURE_SESSION_COOKIE}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0; Priority=High; Secure`,
-    `${LOCAL_SESSION_COOKIE}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0; Priority=High${secure}`
-  ];
-  res.setHeader('set-cookie', expired);
+  appendSetCookie(res, `${SECURE_SESSION_COOKIE}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0; Priority=High; Secure`);
+  appendSetCookie(res, `${LOCAL_SESSION_COOKIE}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0; Priority=High${cookieSecuritySuffix()}`);
 }
 
 function prune() {
@@ -130,17 +159,15 @@ export async function revalidateNexusSession(req, guild) {
   const session = getNexusSession(req);
   if (!session) return null;
 
-  // Fail closed if Discord is unavailable. The session record is retained so a
-  // transient reconnect does not force a new OAuth flow, but it cannot be used
-  // until guild membership can be verified again.
+  // Fail closed if Discord is unavailable. Keep the record briefly so a
+  // transient gateway reconnect does not force OAuth, but grant no access
+  // until membership can be verified again.
   if (!guild) return null;
 
   const now = Date.now();
   let member = guild.members.cache.get(String(session.user?.id ?? '')) ?? null;
   const stale = now - Number(session.lastValidatedAt ?? 0) >= SESSION_REVALIDATE_MS;
-  if (!member || stale) {
-    member = await guild.members.fetch(String(session.user?.id ?? '')).catch(() => null);
-  }
+  if (!member || stale) member = await guild.members.fetch(String(session.user?.id ?? '')).catch(() => null);
   if (!member) {
     if (session.id) sessions.delete(session.id);
     return null;
@@ -206,6 +233,7 @@ export function startDiscordOAuth(req, res, url) {
     : '/';
   oauthStates.set(state, { createdAt: Date.now(), expiresAt: Date.now() + STATE_TTL_MS, returnTo });
   prune();
+  setOAuthStateCookie(res, state);
 
   const params = new URLSearchParams({
     client_id: String(process.env.CLIENT_ID).trim(),
@@ -244,16 +272,19 @@ export async function completeDiscordOAuth(req, res, url, guild) {
   prune();
   const oauthError = String(url.searchParams.get('error') ?? '');
   if (oauthError) {
+    clearOAuthStateCookie(res);
     res.writeHead(400, noStoreHeaders({ 'content-type': 'text/plain; charset=utf-8' }));
     res.end('Discord login was cancelled or denied.');
     return;
   }
 
   const state = String(url.searchParams.get('state') ?? '');
+  const browserState = oauthStateFromRequest(req);
   const code = String(url.searchParams.get('code') ?? '');
   const pending = oauthStates.get(state);
   oauthStates.delete(state);
-  if (!state || !code || !pending || pending.expiresAt <= Date.now()) {
+  clearOAuthStateCookie(res);
+  if (!state || !browserState || !safeEqual(state, browserState) || !code || !pending || pending.expiresAt <= Date.now()) {
     res.writeHead(400, noStoreHeaders({ 'content-type': 'text/plain; charset=utf-8' }));
     res.end('Invalid or expired Discord login attempt.');
     return;
@@ -329,6 +360,7 @@ export async function completeDiscordOAuth(req, res, url, guild) {
 export function logoutDiscord(req, res) {
   const id = sessionIdFromRequest(req);
   if (id) sessions.delete(id);
+  clearOAuthStateCookie(res);
   clearSessionCookie(res);
   res.writeHead(302, noStoreHeaders({ location: '/' }));
   res.end();
