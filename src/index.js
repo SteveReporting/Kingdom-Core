@@ -10,6 +10,7 @@ import {
 import { execute as executeUiUpgrade } from './commands/uipgrade.js';
 import { execute as executeSetup3 } from './commands/setup3.js';
 import { execute as executeMod } from './commands/mod.js';
+import { startNexusPlatform } from './nexus/platform.js';
 import { handleApplicationLinkButton, handleApplicationLinkModal } from './services/applicationLinks.js';
 import {
   handleCarryTicketButton,
@@ -64,9 +65,7 @@ const intents = [
   GatewayIntentBits.GuildMessages,
   GatewayIntentBits.GuildMessageReactions
 ];
-if (String(process.env.ENABLE_MEMBER_STATS_INTENT).toLowerCase() === 'true') {
-  intents.push(GatewayIntentBits.GuildMembers);
-}
+if (String(process.env.ENABLE_MEMBER_STATS_INTENT).toLowerCase() === 'true') intents.push(GatewayIntentBits.GuildMembers);
 
 const client = new Client({
   intents,
@@ -118,10 +117,7 @@ async function runMaintenance(guild) {
 
 client.once(Events.ClientReady, (readyClient) => {
   console.log(`Kingdom Core online as ${readyClient.user.tag}`);
-  readyClient.user.setPresence({
-    activities: [{ name: 'over the Kingdom', type: ActivityType.Watching }],
-    status: 'online'
-  });
+  readyClient.user.setPresence({ activities: [{ name: 'over the Kingdom', type: ActivityType.Watching }], status: 'online' });
 
   const initial = setTimeout(() => {
     for (const guild of readyClient.guilds.cache.values()) runMaintenance(guild).catch(() => null);
@@ -130,6 +126,7 @@ client.once(Events.ClientReady, (readyClient) => {
 
   startPlatformApi(readyClient).catch((error) => console.error('Platform API startup error:', error));
   startExternalInfra(readyClient).catch((error) => console.error('External infrastructure startup error:', error));
+  startNexusPlatform(readyClient).catch((error) => console.error('Kingdom Nexus startup error:', error));
 
   const timer = setInterval(() => {
     for (const guild of readyClient.guilds.cache.values()) runMaintenance(guild).catch(() => null);
@@ -139,10 +136,7 @@ client.once(Events.ClientReady, (readyClient) => {
 
 client.on(Events.GuildMemberAdd, async (member) => {
   await updateServerStats(member.guild).catch(() => null);
-  await trackPlatformEvent(member.guild.id, 'member.joined', {
-    userId: member.id,
-    accountCreatedAt: member.user.createdAt.toISOString()
-  }).catch(() => null);
+  await trackPlatformEvent(member.guild.id, 'member.joined', { userId: member.id, accountCreatedAt: member.user.createdAt.toISOString() }).catch(() => null);
 });
 
 client.on(Events.GuildMemberRemove, async (member) => {
@@ -161,162 +155,69 @@ client.on(Events.GuildAuditLogEntryCreate, async (entry, guild) => {
 });
 
 client.on(Events.MessageCreate, async (message) => {
-  try {
-    await handleMessageSpam(message);
-  } catch (error) {
-    console.error('Anti-spam event error:', error);
-  }
+  try { await handleMessageSpam(message); } catch (error) { console.error('Anti-spam event error:', error); }
 });
 
 client.on(Events.MessageReactionAdd, async (reaction, user) => {
-  try {
-    await handleLevelReactionAdd(reaction, user);
-  } catch (error) {
-    console.error('Level reaction add error:', error);
-  }
+  try { await handleLevelReactionAdd(reaction, user); } catch (error) { console.error('Level reaction add error:', error); }
 });
 
 client.on(Events.MessageReactionRemove, async (reaction, user) => {
-  try {
-    await handleLevelReactionRemove(reaction, user);
-  } catch (error) {
-    console.error('Level reaction remove error:', error);
-  }
+  try { await handleLevelReactionRemove(reaction, user); } catch (error) { console.error('Level reaction remove error:', error); }
 });
 
 client.on(Events.InteractionCreate, async (interaction) => {
   try {
     if (interaction.isChatInputCommand()) {
-      if (interaction.commandName === 'uipgrade') {
-        await executeUiUpgrade(interaction);
-        return;
-      }
-      if (interaction.commandName === 'setup3') {
-        await executeSetup3(interaction);
-        return;
-      }
-      if (interaction.commandName === 'mod') {
-        await executeMod(interaction);
-        return;
-      }
+      if (interaction.commandName === 'uipgrade') { await executeUiUpgrade(interaction); return; }
+      if (interaction.commandName === 'setup3') { await executeSetup3(interaction); return; }
+      if (interaction.commandName === 'mod') { await executeMod(interaction); return; }
     }
 
     if (interaction.isButton()) {
-      if (interaction.customId.startsWith('kc10:')) {
-        const handled = await handleV10Button(interaction);
-        if (handled !== false) return;
-      }
-      if (interaction.customId.startsWith('kc4x:')) {
-        const handled = await handlePlatformV4CompleteButton(interaction);
-        if (handled !== false) return;
-      }
-      if (interaction.customId.startsWith('kc4c:')) {
-        const handled = await handleCommunityV4Button(interaction);
-        if (handled !== false) return;
-      }
+      if (interaction.customId.startsWith('kc10:')) { const handled = await handleV10Button(interaction); if (handled !== false) return; }
+      if (interaction.customId.startsWith('kc4x:')) { const handled = await handlePlatformV4CompleteButton(interaction); if (handled !== false) return; }
+      if (interaction.customId.startsWith('kc4c:')) { const handled = await handleCommunityV4Button(interaction); if (handled !== false) return; }
       if (interaction.customId.startsWith('kc4:')) {
-        let handled = await handleV4DecisionButton(interaction);
-        if (handled !== false) return;
-        handled = await handleV4CommendButton(interaction);
-        if (handled !== false) return;
-        handled = await handleV4Button(interaction);
-        if (handled !== false) return;
+        let handled = await handleV4DecisionButton(interaction); if (handled !== false) return;
+        handled = await handleV4CommendButton(interaction); if (handled !== false) return;
+        handled = await handleV4Button(interaction); if (handled !== false) return;
       }
-      if (interaction.customId.startsWith('kc3:party:') || interaction.customId === 'kc2:carry:open' || interaction.customId === 'kc:carry:join') {
-        const handled = await handlePartyButton(interaction);
-        if (handled !== false) return;
-      }
-      if (interaction.customId.startsWith('kc2:carry:')) {
-        const handled = await handleCarryTicketButton(interaction);
-        if (handled !== false) return;
-      }
-      if (interaction.customId.startsWith('kc2:apps:') || interaction.customId.startsWith('kc:app:review:')) {
-        const handled = await handleApplicationLinkButton(interaction);
-        if (handled !== false) return;
-      }
-      if (interaction.customId.startsWith('kc2:tickets:')) {
-        const handled = await handleTicketControlButton(interaction);
-        if (handled !== false) return;
-      }
-      if (interaction.customId.startsWith('kc:carry:') || interaction.customId.startsWith('kc:qv2:')) {
-        await handleQueueButton(interaction);
-        return;
-      }
+      if (interaction.customId.startsWith('kc3:party:') || interaction.customId === 'kc2:carry:open' || interaction.customId === 'kc:carry:join') { const handled = await handlePartyButton(interaction); if (handled !== false) return; }
+      if (interaction.customId.startsWith('kc2:carry:')) { const handled = await handleCarryTicketButton(interaction); if (handled !== false) return; }
+      if (interaction.customId.startsWith('kc2:apps:') || interaction.customId.startsWith('kc:app:review:')) { const handled = await handleApplicationLinkButton(interaction); if (handled !== false) return; }
+      if (interaction.customId.startsWith('kc2:tickets:')) { const handled = await handleTicketControlButton(interaction); if (handled !== false) return; }
+      if (interaction.customId.startsWith('kc:carry:') || interaction.customId.startsWith('kc:qv2:')) { await handleQueueButton(interaction); return; }
       await handleButton(interaction);
       return;
     }
 
     if (interaction.isStringSelectMenu()) {
-      if (interaction.customId.startsWith('kc4x:')) {
-        const handled = await handlePlatformV4CompleteSelect(interaction);
-        if (handled !== false) return;
-      }
-      if (interaction.customId.startsWith('kc4c:')) {
-        const handled = await handleCommunityV4Select(interaction);
-        if (handled !== false) return;
-      }
-      if (interaction.customId.startsWith('kc4:')) {
-        const handled = await handleV4Select(interaction);
-        if (handled !== false) return;
-      }
-      if (interaction.customId.startsWith('kc3:party:')) {
-        const handled = await handlePartySelect(interaction);
-        if (handled !== false) return;
-      }
-      if (interaction.customId.startsWith('kc2:carry:')) {
-        const handled = await handleCarryTicketSelect(interaction);
-        if (handled !== false) return;
-      }
-      if (interaction.customId.startsWith('kc2:tickets:')) {
-        const handled = await handleTicketControlSelect(interaction);
-        if (handled !== false) return;
-      }
-      if (interaction.customId.startsWith('kc:carry:') || interaction.customId.startsWith('kc:qv2:')) {
-        await handleQueueSelect(interaction);
-        return;
-      }
+      if (interaction.customId.startsWith('kc4x:')) { const handled = await handlePlatformV4CompleteSelect(interaction); if (handled !== false) return; }
+      if (interaction.customId.startsWith('kc4c:')) { const handled = await handleCommunityV4Select(interaction); if (handled !== false) return; }
+      if (interaction.customId.startsWith('kc4:')) { const handled = await handleV4Select(interaction); if (handled !== false) return; }
+      if (interaction.customId.startsWith('kc3:party:')) { const handled = await handlePartySelect(interaction); if (handled !== false) return; }
+      if (interaction.customId.startsWith('kc2:carry:')) { const handled = await handleCarryTicketSelect(interaction); if (handled !== false) return; }
+      if (interaction.customId.startsWith('kc2:tickets:')) { const handled = await handleTicketControlSelect(interaction); if (handled !== false) return; }
+      if (interaction.customId.startsWith('kc:carry:') || interaction.customId.startsWith('kc:qv2:')) { await handleQueueSelect(interaction); return; }
       await handleSelect(interaction);
       return;
     }
 
     if (interaction.isModalSubmit()) {
-      if (interaction.customId.startsWith('kc4x:')) {
-        const handled = await handlePlatformV4CompleteModal(interaction);
-        if (handled !== false) return;
-      }
-      if (interaction.customId.startsWith('kc4c:')) {
-        const handled = await handleCommunityV4Modal(interaction);
-        if (handled !== false) return;
-      }
-      if (interaction.customId.startsWith('kc4:')) {
-        const handled = await handleV4Modal(interaction);
-        if (handled !== false) return;
-      }
-      if (interaction.customId.startsWith('kc3:party:')) {
-        const handled = await handlePartyModal(interaction);
-        if (handled !== false) return;
-      }
-      if (interaction.customId.startsWith('kc2:carry:')) {
-        const handled = await handleCarryTicketModal(interaction);
-        if (handled !== false) return;
-      }
-      if (interaction.customId.startsWith('kc2:apps:')) {
-        const handled = await handleApplicationLinkModal(interaction);
-        if (handled !== false) return;
-      }
+      if (interaction.customId.startsWith('kc4x:')) { const handled = await handlePlatformV4CompleteModal(interaction); if (handled !== false) return; }
+      if (interaction.customId.startsWith('kc4c:')) { const handled = await handleCommunityV4Modal(interaction); if (handled !== false) return; }
+      if (interaction.customId.startsWith('kc4:')) { const handled = await handleV4Modal(interaction); if (handled !== false) return; }
+      if (interaction.customId.startsWith('kc3:party:')) { const handled = await handlePartyModal(interaction); if (handled !== false) return; }
+      if (interaction.customId.startsWith('kc2:carry:')) { const handled = await handleCarryTicketModal(interaction); if (handled !== false) return; }
+      if (interaction.customId.startsWith('kc2:apps:')) { const handled = await handleApplicationLinkModal(interaction); if (handled !== false) return; }
       await handleModal(interaction);
     }
   } catch (error) {
     console.error('Interaction error:', error);
-    const payload = {
-      content: `Kingdom Core hit an unexpected error: ${String(error?.message ?? error).slice(0, 1500)}`,
-      flags: MessageFlags.Ephemeral
-    };
-    if (interaction.deferred || interaction.replied) {
-      await interaction.followUp(payload).catch(() => null);
-    } else {
-      await interaction.reply(payload).catch(() => null);
-    }
+    const payload = { content: `Kingdom Core hit an unexpected error: ${String(error?.message ?? error).slice(0, 1500)}`, flags: MessageFlags.Ephemeral };
+    if (interaction.deferred || interaction.replied) await interaction.followUp(payload).catch(() => null);
+    else await interaction.reply(payload).catch(() => null);
   }
 });
 
