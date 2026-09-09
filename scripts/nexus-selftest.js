@@ -36,7 +36,7 @@ const manifest = await fs.readFile(path.join(root, 'web/nexus/manifest.webmanife
 for (const endpoint of [
   '/api/me','/api/products','/api/status','/api/live','/api/live/stream','/api/intelligence','/api/sentinel','/api/network/summary','/api/launcher',
   '/api/admin/state','/api/admin/vault/verify','/api/network/tenants','/api/identity/link','/api/companion/builds','/api/companion/guides',
-  '/api/creators/campaigns','/api/studio/layouts','/api/sentinel/incidents','/api/vault/backup','/api/ai',
+  '/api/creators/campaigns','/api/studio/layouts','/api/sentinel/incidents','/api/vault/backup','/api/vault/restore','/api/ai',
   '/auth/discord','/auth/discord/callback','/auth/logout'
 ]) {
   if (!platform.includes(endpoint)) failures.push(`Nexus endpoint missing: ${endpoint}`);
@@ -44,7 +44,7 @@ for (const endpoint of [
 for (const capability of ['upsertCompanionBuild','upsertCompanionGuide','createSentinelIncident','updateSentinelIncident','publishStudioLayout','buildAdminSnapshot','buildTrendSummary']) {
   if (!domain.includes(capability)) failures.push(`Nexus domain capability missing: ${capability}`);
 }
-for (const capability of ['runNexusMaintenance','refreshSystemReadiness','createVaultBackup','verifyVaultBackups','sha256','AUTO_BACKUP_INTERVAL_MS','configuration-required']) {
+for (const capability of ['runNexusMaintenance','refreshSystemReadiness','createVaultBackup','verifyVaultBackups','restoreVaultBackup','MAX_RESTORE_BYTES','safetyBackup','sha256','AUTO_BACKUP_INTERVAL_MS','configuration-required']) {
   if (!ops.includes(capability)) failures.push(`Nexus operations capability missing: ${capability}`);
 }
 for (const slug of NEXUS_PRODUCTS.map((product) => product.slug)) {
@@ -67,7 +67,10 @@ if (!app.includes('beforeinstallprompt')) failures.push('Nexus PWA install flow 
 if (!app.includes('sessionStorage')) failures.push('Legacy Nexus fallback admin token must remain session-scoped in the legacy browser surface.');
 if (!app.includes('EventSource')) failures.push('Nexus browser live stream client is missing.');
 if (!authUi.includes('/api/me') || !authUi.includes('/auth/discord') || !authUi.includes('/auth/logout')) failures.push('Nexus Discord login UI bridge is incomplete.');
-if (!sdk.includes('streamLive') || !sdk.includes('saveBuild') || !sdk.includes('openIncident') || !sdk.includes('verifyBackups')) failures.push('Kingdom SDK does not expose the expanded Nexus platform.');
+for (const capability of ['streamLive','saveBuild','openIncident','verifyBackups','restoreBackup','ensureCsrf','credentials']) {
+  if (!sdk.includes(capability)) failures.push(`Kingdom SDK capability missing: ${capability}`);
+}
+if (!sdk.includes("confirm: 'RESTORE'")) failures.push('Kingdom SDK Vault restore must require explicit confirmation.');
 if (!tv.includes('EventSource') || !tv.includes('/api/live/stream')) failures.push('Kingdom TV is not connected to the Nexus live stream.');
 if (!manifest.includes('/icon.svg') || !manifest.includes('shortcuts')) failures.push('Nexus installable PWA manifest is incomplete.');
 for (const ui of ['renderNetwork','renderIdentity','renderCompanion','renderCreators','renderStudio','renderSentinel','renderVault','renderIntelligence','renderLauncher']) {
@@ -89,4 +92,4 @@ if (failures.length) {
   for (const failure of failures) console.error(`- ${failure}`);
   process.exit(1);
 }
-console.log('Kingdom suite self-test passed: all 20 systems are registered with runtime readiness checks, free runtime, Discord OAuth operator sessions, live SSE/TV, SDK, Companion, Creator, Studio, Sentinel, verified Vault backups, Intelligence trends and low-memory maintenance verified.');
+console.log('Kingdom suite self-test passed: all 20 systems are registered with runtime readiness checks, secure Discord sessions, live SSE/TV, session-aware SDK, Companion, Creator, Studio, Sentinel, verified Vault backup/restore, Intelligence trends and low-memory maintenance verified.');
