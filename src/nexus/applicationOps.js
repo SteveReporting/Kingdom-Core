@@ -1,5 +1,6 @@
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } from 'discord.js';
 import { mutateGuildState, readGuildState } from '../storage/store.js';
+import { cleanText, safeRecordId } from './validation.js';
 
 const GRADES = new Set(['S', 'A', 'B', 'C', 'D', 'F']);
 const DECISIONS = new Set(['Pending', 'Interview', 'Accepted', 'Denied']);
@@ -36,15 +37,16 @@ function now() {
 }
 
 function reviewRecord(state, appId) {
+  const targetId = safeRecordId(appId, 'application id');
   state.applicationReviewVNext ??= {};
-  state.applicationReviewVNext[appId] ??= {
+  state.applicationReviewVNext[targetId] ??= {
     notes: [],
     grade: null,
     decision: 'Pending',
     claimedBy: null,
     updatedAt: now()
   };
-  return state.applicationReviewVNext[appId];
+  return state.applicationReviewVNext[targetId];
 }
 
 function configFor(type) {
@@ -108,7 +110,7 @@ async function dmApplicant(guild, app, review, roleResult) {
           : `Thank you for applying for **${config.label}**. Your application was reviewed and was not accepted this time.`
     )
     .addFields(
-      { name: 'Application', value: `\`${app.id}\``, inline: true },
+      { name: 'Application', value: `\`${cleanText(app.id, 100)}\``, inline: true },
       { name: 'Grade', value: `**${review.grade ?? '—'}**`, inline: true },
       { name: 'Decision', value: `**${review.decision}**`, inline: true },
       ...(review.finalNote ? [{ name: 'Reviewer Message', value: String(review.finalNote).slice(0, 1024) }] : [])
@@ -125,7 +127,7 @@ async function postStatus(guild, state, app, review, roleResult, reviewerId, dmS
   const embed = new EmbedBuilder()
     .setColor(review.decision === 'Accepted' ? 0x57f287 : review.decision === 'Denied' ? 0xed4245 : 0x5865f2)
     .setAuthor({ name: 'KINGDOM NEXUS • APPLICATION REVIEW' })
-    .setTitle(`Application ${app.id} • ${review.decision}`)
+    .setTitle(`Application ${cleanText(app.id, 100)} • ${review.decision}`)
     .setDescription(`<@${app.userId ?? app.discordId}>`)
     .addFields(
       { name: 'Grade', value: String(review.grade ?? '—'), inline: true },
@@ -139,21 +141,25 @@ async function postStatus(guild, state, app, review, roleResult, reviewerId, dmS
 }
 
 export async function addApplicationReviewNote(guildId, appId, reviewerId, text) {
-  const note = String(text ?? '').trim().slice(0, 1600);
+  const targetId = safeRecordId(appId, 'application id');
+  const reviewer = cleanText(reviewerId, 100) || 'kingdom-nexus';
+  const note = cleanText(text, 1600);
   if (!note) throw Object.assign(new Error('Reviewer note is required.'), { statusCode: 400 });
   return mutateGuildState(guildId, (state) => {
-    const app = state.applications?.[appId];
-    if (!app) throw Object.assign(new Error('Application not found.'), { statusCode: 404 });
-    const review = reviewRecord(state, appId);
-    review.notes.push({ authorId: reviewerId, text: note, at: now() });
+    const app = state.applications?.[targetId];
+    if (!app || typeof app !== 'object') throw Object.assign(new Error('Application not found.'), { statusCode: 404 });
+    const review = reviewRecord(state, targetId);
+    review.notes.push({ authorId: reviewer, text: note, at: now() });
     if (review.notes.length > 100) review.notes = review.notes.slice(-100);
-    review.claimedBy ??= reviewerId;
+    review.claimedBy ??= reviewer;
     review.updatedAt = now();
     return review;
   });
 }
 
 export async function finalizeApplicationReview(guild, appId, reviewerId, input = {}) {
+  const targetId = safeRecordId(appId, 'application id');
+  const reviewer = cleanText(reviewerId, 100) || 'kingdom-nexus';
   const grade = String(input.grade ?? '').toUpperCase();
   const decisionRaw = String(input.decision ?? '').toLowerCase();
   const decision = decisionRaw === 'accept' || decisionRaw === 'accepted'
@@ -170,27 +176,27 @@ export async function finalizeApplicationReview(guild, appId, reviewerId, input 
 
   let application = null;
   await mutateGuildState(guild.id, (state) => {
-    const app = state.applications?.[appId];
-    if (!app) throw Object.assign(new Error('Application not found.'), { statusCode: 404 });
-    const review = reviewRecord(state, appId);
+    const app = state.applications?.[targetId];
+    if (!app || typeof app !== 'object') throw Object.assign(new Error('Application not found.'), { statusCode: 404 });
+    const review = reviewRecord(state, targetId);
     review.grade = grade;
     review.decision = decision;
-    review.finalNote = String(input.finalNote ?? input.note ?? '').trim().slice(0, 900);
-    review.claimedBy = reviewerId;
+    review.finalNote = cleanText(input.finalNote ?? input.note, 900);
+    review.claimedBy = reviewer;
     review.updatedAt = now();
     review.finalizedAt = ['Accepted', 'Denied'].includes(decision) ? now() : null;
     app.status = decision === 'Accepted' ? 'accepted' : decision === 'Denied' ? 'denied' : decision.toLowerCase();
-    app.reviewerId = reviewerId;
+    app.reviewerId = reviewer;
     app.reviewedAt = now();
     application = { ...app };
   });
 
   const state = await readGuildState(guild.id);
-  const review = state.applicationReviewVNext?.[appId] ?? {};
+  const review = state.applicationReviewVNext?.[targetId] ?? {};
   let roleResult = { member: null, granted: [], failed: [] };
   if (decision === 'Accepted') roleResult = await grantRoles(guild, state, application);
   const dmSent = await dmApplicant(guild, application, review, roleResult);
-  if (decision !== 'Pending') await postStatus(guild, state, application, review, roleResult, reviewerId, dmSent);
+  if (decision !== 'Pending') await postStatus(guild, state, application, review, roleResult, reviewer, dmSent);
 
   return {
     application,
