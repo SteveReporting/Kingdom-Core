@@ -11,6 +11,7 @@ const lastAutoBackup = new Map();
 const MAINTENANCE_INTERVAL_MS = Math.max(15 * 60_000, Number(process.env.KINGDOM_NEXUS_MAINTENANCE_MS ?? 15 * 60_000));
 const AUTO_BACKUP_INTERVAL_MS = Math.max(6 * 60 * 60_000, Number(process.env.KINGDOM_NEXUS_BACKUP_MS ?? 6 * 60 * 60_000));
 const MAX_RESTORE_BYTES = 25 * 1024 * 1024;
+const MAX_PRESERVED_AUDIT_EVENTS = 500;
 
 function count(value) {
   if (Array.isArray(value)) return value.length;
@@ -94,14 +95,14 @@ export async function refreshSystemReadiness(guild) {
     sentinel: runtime('operational', 'Discord permission posture scanning is available.'),
     vault: runtime(vaultReady ? 'operational' : 'degraded', vaultReady ? 'Vault storage is writable.' : 'Vault storage is unavailable.', vaultReady),
     intelligence: runtime('operational', 'Operational snapshots and trend history are available.'),
-    ai: runtime(aiReady ? 'operational' : 'configuration-required', aiReady ? 'Kingdom AI endpoint is configured.' : 'Set KINGDOM_AI_LOCAL_URL to activate the optional private AI provider.', aiReady),
+    ai: runtime(aiReady ? 'operational' : 'configuration-required', aiReady ? 'Kingdom AI local fallback endpoint is configured.' : 'No local AI fallback is configured; the Cloudflare edge reports its own Workers AI readiness.', true),
     nexus: runtime('operational', 'Unified Kingdom control plane is running.')
   };
 
   await mutateNexusState(guild.id, (nexus) => {
     for (const [slug, state] of Object.entries(states)) nexus.products[slug] = state;
     nexus.ai.enabled = aiReady;
-    nexus.ai.provider = aiReady ? 'local' : 'unconfigured';
+    nexus.ai.provider = aiReady ? 'local' : 'edge-or-unconfigured';
   });
   return states;
 }
@@ -245,6 +246,7 @@ export async function restoreVaultBackup(guildId, input = {}) {
   const safetyBackup = await createVaultBackup(guildId, { automatic: false });
   const beforeRestore = await readGuildState(guildId);
   const preservedBackups = [...(beforeRestore.nexus?.vault?.backups ?? [])];
+  const preservedAudit = [...(beforeRestore.nexus?.audit ?? [])].slice(-MAX_PRESERVED_AUDIT_EVENTS);
   const restoredAt = new Date().toISOString();
 
   await mutateGuildState(guildId, (state) => {
@@ -253,6 +255,7 @@ export async function restoreVaultBackup(guildId, input = {}) {
     state.nexus ??= {};
     state.nexus.vault ??= {};
     state.nexus.vault.backups = preservedBackups;
+    state.nexus.audit = preservedAudit;
     state.nexus.vault.lastRestore = {
       at: restoredAt,
       sourceFile: record.file,
@@ -266,13 +269,14 @@ export async function restoreVaultBackup(guildId, input = {}) {
     restored: true,
     restoredAt,
     source: { file: record.file, sha256: digest, bytes: bytes.length },
-    safetyBackup
+    safetyBackup,
+    auditPreserved: preservedAudit.length
   };
 }
 
 export async function callLocalKingdomAi(prompt, context = {}) {
   const baseUrl = String(process.env.KINGDOM_AI_LOCAL_URL ?? '').trim().replace(/\/$/, '');
-  if (!baseUrl) throw new Error('Kingdom AI is disabled: KINGDOM_AI_LOCAL_URL is not configured.');
+  if (!baseUrl) throw new Error('Kingdom AI local fallback is disabled: KINGDOM_AI_LOCAL_URL is not configured.');
   const model = String(process.env.KINGDOM_AI_LOCAL_MODEL ?? 'sentient-local');
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 15_000);
