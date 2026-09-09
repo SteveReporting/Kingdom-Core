@@ -1,4 +1,4 @@
-export const NEXUS_VERSION = '1.0.0';
+export const NEXUS_VERSION = '1.1.0';
 
 export const NEXUS_PRODUCTS = Object.freeze([
   { id: 2, slug: 'core2', name: 'Kingdom Core 2', type: 'bot-platform', summary: 'Modular Discord gateway, API, workers and shared domain services.', capabilities: ['Discord gateway', 'shared services', 'event-driven modules', 'single-process low-memory mode'] },
@@ -9,15 +9,15 @@ export const NEXUS_PRODUCTS = Object.freeze([
   { id: 7, slug: 'identity', name: 'Kingdom Identity', type: 'identity-platform', summary: 'Canonical member identity joining Discord and Roblox-facing profile data.', capabilities: ['canonical profile', 'Discord ID', 'Roblox identity field', 'rename-safe history'] },
   { id: 8, slug: 'launcher', name: 'Kingdom Launcher', type: 'installable-shell', summary: 'One installable launch surface for Discord, Dungeon Quest, Kingdom tools and live status.', capabilities: ['PWA launcher', 'deep links', 'status shortcuts', 'no installer fee'] },
   { id: 9, slug: 'companion', name: 'Kingdom Companion', type: 'game-companion', summary: 'Non-exploit Dungeon Quest companion for builds, progression, guides and carry readiness.', capabilities: ['build profiles', 'guide library', 'progression notes', 'carry readiness'] },
-  { id: 10, slug: 'live', name: 'Kingdom Live', type: 'public-live-site', summary: 'Real-time public operations view for carries, queue demand, events and service health.', capabilities: ['live queue', 'active sessions', 'service health', 'public-safe metrics'] },
-  { id: 11, slug: 'tv', name: 'Kingdom TV', type: 'broadcast-ui', summary: 'OBS/browser-source friendly live display for streams and events.', capabilities: ['TV route', 'auto-refresh', 'large-format layout', 'stream overlay ready'] },
+  { id: 10, slug: 'live', name: 'Kingdom Live', type: 'public-live-site', summary: 'Real-time public operations view for carries, queue demand, events and service health.', capabilities: ['live queue', 'active sessions', 'service health', 'Server-Sent Events stream'] },
+  { id: 11, slug: 'tv', name: 'Kingdom TV', type: 'broadcast-ui', summary: 'OBS/browser-source friendly live display for streams and events.', capabilities: ['TV route', 'live refresh', 'large-format layout', 'stream overlay ready'] },
   { id: 12, slug: 'creators', name: 'Kingdom Creator Platform', type: 'creator-portal', summary: 'Campaign and collaboration control surface for approved creators.', capabilities: ['campaign registry', 'creator links', 'event hooks', 'performance fields'] },
-  { id: 13, slug: 'api', name: 'Kingdom API', type: 'developer-api', summary: 'Documented HTTP API exposing safe Kingdom data and controlled actions.', capabilities: ['versioned endpoints', 'admin-token writes', 'public-safe reads', 'health endpoint'] },
+  { id: 13, slug: 'api', name: 'Kingdom API', type: 'developer-api', summary: 'Documented HTTP API exposing safe Kingdom data and controlled actions.', capabilities: ['versioned endpoints', 'admin-token writes', 'public-safe reads', 'live stream endpoint'] },
   { id: 14, slug: 'sdk', name: 'Kingdom SDK', type: 'developer-sdk', summary: 'Zero-dependency JavaScript client for the Kingdom API.', capabilities: ['JS client', 'typed-style methods', 'browser/node compatible', 'no external package required'] },
-  { id: 15, slug: 'studio', name: 'Kingdom Studio', type: 'visual-builder', summary: 'Visual configuration layer for panels, layouts and reusable server experiences.', capabilities: ['layout registry', 'draft configs', 'version fields', 'safe publish model'] },
-  { id: 16, slug: 'sentinel', name: 'Kingdom Sentinel', type: 'security-platform', summary: 'Independent security health and configuration-risk surface.', capabilities: ['risk snapshot', 'admin-bot visibility', 'incident state', 'permission health'] },
-  { id: 17, slug: 'vault', name: 'Kingdom Vault', type: 'backup-platform', summary: 'Local state snapshots and disaster-recovery records with retention.', capabilities: ['on-demand backup', 'local retention', 'restore-ready files', 'no cloud storage bill'] },
-  { id: 18, slug: 'intelligence', name: 'Kingdom Intelligence', type: 'analytics-platform', summary: 'Operational analytics built from the same Kingdom state instead of a paid warehouse.', capabilities: ['queue metrics', 'carry metrics', 'case metrics', 'snapshot summaries'] },
+  { id: 15, slug: 'studio', name: 'Kingdom Studio', type: 'visual-builder', summary: 'Visual configuration layer for panels, layouts and reusable server experiences.', capabilities: ['layout registry', 'draft configs', 'versioned publishing', 'safe publish model'] },
+  { id: 16, slug: 'sentinel', name: 'Kingdom Sentinel', type: 'security-platform', summary: 'Independent security health, risk snapshots and incident command.', capabilities: ['risk snapshot', 'admin-bot visibility', 'incident lifecycle', 'permission health'] },
+  { id: 17, slug: 'vault', name: 'Kingdom Vault', type: 'backup-platform', summary: 'Local state snapshots and disaster-recovery records with retention and checksums.', capabilities: ['on-demand backup', 'automatic backup', 'SHA-256 verification', 'no cloud storage bill'] },
+  { id: 18, slug: 'intelligence', name: 'Kingdom Intelligence', type: 'analytics-platform', summary: 'Operational analytics built from the same Kingdom state instead of a paid warehouse.', capabilities: ['queue metrics', 'carry metrics', 'case metrics', 'historical trend window'] },
   { id: 19, slug: 'ai', name: 'Kingdom AI', type: 'local-ai-gateway', summary: 'Optional local/open-compatible AI gateway that is disabled unless a free local endpoint is configured.', capabilities: ['local endpoint only by default', 'provider abstraction', 'hard timeout', 'off switch'] },
   { id: 20, slug: 'nexus', name: 'Kingdom Nexus', type: 'unified-control-plane', summary: 'One control plane joining every Kingdom product into a single ecosystem.', capabilities: ['single navigation', 'shared identity', 'shared API', 'shared state', 'shared security'] }
 ]);
@@ -28,7 +28,7 @@ export const FREE_RUNTIME_POLICY = Object.freeze({
   defaultHosting: 'existing Oracle VM',
   mobileDistribution: 'installable PWA',
   desktopDistribution: 'installable PWA',
-  ai: 'disabled unless a user-owned local/OpenAI-compatible free endpoint is configured',
+  ai: 'disabled unless a user-owned local/Ollama-compatible free endpoint is configured',
   externalDatabaseRequired: false,
   externalCacheRequired: false,
   appStoreRequired: false
