@@ -65,12 +65,15 @@ for (const capability of ['runNexusMaintenance','refreshSystemReadiness','create
 for (const slug of NEXUS_PRODUCTS.map((product) => product.slug)) {
   if (!ops.includes(`${slug}: runtime(`)) failures.push(`Runtime readiness check missing for Kingdom system: ${slug}`);
 }
-for (const capability of ['discordOAuthConfigured','startDiscordOAuth','completeDiscordOAuth','publicSession','isOperatorSession','HttpOnly','SameSite=Lax','SESSION_TTL_MS']) {
-  if (!auth.includes(capability)) failures.push(`Nexus Discord OAuth capability missing: ${capability}`);
+for (const capability of ['discordOAuthConfigured','startDiscordOAuth','completeDiscordOAuth','publicSession','isOperatorSession','revalidateNexusSession','operatorForMember','HttpOnly','SameSite=Lax','SESSION_TTL_MS','SESSION_REVALIDATE_MS']) {
+  if (!auth.includes(capability)) failures.push(`Nexus Discord OAuth/session capability missing: ${capability}`);
 }
 if (!auth.includes('PermissionFlagsBits.Administrator') || !auth.includes('PermissionFlagsBits.ManageGuild')) failures.push('Discord OAuth operator authorization must be tied to Discord permissions.');
 if (!auth.includes('DISCORD_OAUTH_CLIENT_SECRET') || !auth.includes('KINGDOM_NEXUS_PUBLIC_URL')) failures.push('Discord OAuth environment contract is missing.');
 if (!auth.includes("scope: 'identify'")) failures.push('Discord OAuth should request only identify scope by default.');
+if (!auth.includes('wasOperator && !operator') || !auth.includes('session.csrfToken = token(24)')) failures.push('Privilege revocation must invalidate previously issued CSRF material.');
+if (!platform.includes('await revalidateNexusSession(req, guild)')) failures.push('Nexus API does not revalidate live Discord membership.');
+if (!platform.includes('event: auth') || !platform.includes('session-expired')) failures.push('Nexus live SSE stream does not fail closed when membership expires.');
 if (!platform.includes('KINGDOM_NEXUS_ADMIN_TOKEN')) failures.push('Nexus fallback admin token protection is missing.');
 if (!platform.includes('isOperatorSession(req)')) failures.push('Nexus admin API does not accept Discord operator sessions.');
 if (!platform.includes("KINGDOM_NEXUS_HOST ?? '127.0.0.1'")) failures.push('Nexus must bind to localhost by default.');
@@ -108,4 +111,4 @@ if (failures.length) {
   for (const failure of failures) console.error(`- ${failure}`);
   process.exit(1);
 }
-console.log('Kingdom suite self-test passed: all 20 systems are registered with runtime readiness checks, secure Discord sessions, audited operator writes, complete managed-record lifecycle, live SSE/TV, session-aware SDK, verified Vault backup/restore, Intelligence trends and low-memory maintenance verified.');
+console.log('Kingdom suite self-test passed: all 20 systems are registered with runtime readiness checks, continuously revalidated Discord membership/privileges, audited operator writes, complete managed-record lifecycle, live SSE/TV, session-aware SDK, verified Vault backup/restore, Intelligence trends and low-memory maintenance verified.');
