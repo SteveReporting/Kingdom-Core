@@ -2,8 +2,16 @@ import http from 'node:http';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { createHash, timingSafeEqual } from 'node:crypto';
+
 import { NEXUS_PRODUCTS, FREE_RUNTIME_POLICY, NEXUS_VERSION, productBySlug } from './catalog.js';
-import { appendNexusAudit, getNexusState, linkIdentity, upsertCreatorCampaign, upsertStudioLayout, upsertTenant } from './state.js';
+import {
+  appendNexusAudit,
+  getNexusState,
+  linkIdentity,
+  upsertCreatorCampaign,
+  upsertStudioLayout,
+  upsertTenant
+} from './state.js';
 import { readGuildState } from '../storage/store.js';
 import {
   buildIntelligenceSnapshot,
@@ -22,12 +30,16 @@ import {
   publishStudioLayout,
   updateSentinelIncident,
   upsertCompanionBuild,
-  upsertCompanionGuide
+  upsertCompanionDungeon,
+  upsertCompanionGuide,
+  upsertCompanionReadiness
 } from './domain.js';
 import {
   listAuditEvents,
   removeCompanionBuild,
+  removeCompanionDungeon,
   removeCompanionGuide,
+  removeCompanionReadiness,
   removeCreatorCampaign,
   removeStudioLayout,
   removeTenant,
@@ -59,6 +71,7 @@ import { addApplicationReviewNote, finalizeApplicationReview } from './applicati
 
 const WEB_ROOT = path.resolve('web', 'nexus');
 const OPERATOR_READS = new Set(['/api/identity', '/api/applications', '/api/vault', '/api/studio/layouts', '/api/audit']);
+const WRITE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 const rateBuckets = new Map();
 let server = null;
 let maintenanceTimer = null;
@@ -155,18 +168,30 @@ function validBrowserWrite(req) {
 }
 
 async function readBody(req, limit = 250_000) {
+  const contentType = String(req.headers['content-type'] ?? '').toLowerCase();
+  if (req.headers['content-length'] && Number(req.headers['content-length']) > limit) {
+    throw Object.assign(new Error('Request body too large.'), { statusCode: 413 });
+  }
   let size = 0;
   const chunks = [];
   for await (const chunk of req) {
     size += chunk.length;
-    if (size > limit) throw Object.assign(new Error('Request body too large'), { statusCode: 413 });
+    if (size > limit) throw Object.assign(new Error('Request body too large.'), { statusCode: 413 });
     chunks.push(chunk);
   }
   if (!chunks.length) return {};
+  if (!contentType.startsWith('application/json')) {
+    throw Object.assign(new Error('Content-Type must be application/json.'), { statusCode: 415 });
+  }
   try {
-    return JSON.parse(Buffer.concat(chunks).toString('utf8'));
-  } catch {
-    throw Object.assign(new Error('Invalid JSON request body'), { statusCode: 400 });
+    const value = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      throw Object.assign(new Error('Request body must be a JSON object.'), { statusCode: 400 });
+    }
+    return value;
+  } catch (error) {
+    if (error?.statusCode) throw error;
+    throw Object.assign(new Error('Invalid JSON request body.'), { statusCode: 400 });
   }
 }
 
@@ -232,31 +257,108 @@ async function staticFile(res, requestPath) {
   }
 }
 
-function openApiDocument() {
+function responseSchema() {
   return {
-    name: 'Kingdom Nexus API',
-    version: NEXUS_VERSION,
-    auth: 'Operational reads require a live, revalidated Kingdom guild membership. Operator writes require current Discord operator privileges plus a CSRF token. The recovery bearer token is local-only.',
-    public: ['GET /health', 'GET /api/me', 'GET /auth/discord', 'GET /auth/discord/callback', 'GET /auth/logout'],
-    member: [
-      'GET /api/products', 'GET /api/status', 'GET /api/live', 'GET /api/live/stream',
-      'GET /api/intelligence', 'GET /api/sentinel', 'GET /api/network/summary',
-      'GET /api/launcher', 'GET /api/companion', 'GET /api/creators',
-      'GET /api/openapi', 'GET /api/products/:slug', 'GET /api/sdk/kingdom-nexus.js'
+    type: 'object',
+    additionalProperties: true
+  };
+}
+
+function endpoint(summary, tier = 'member', requestBody = false) {
+  const value = {
+    summary,
+    tags: [tier],
+    responses: {
+      200: {
+        description: 'Success',
+        content: { 'application/json': { schema: responseSchema() } }
+      },
+      401: { description: 'Discord sign-in required' },
+      403: { description: 'Operator permission or CSRF validation failed' },
+      429: { description: 'Rate limited' }
+    }
+  };
+  if (tier !== 'public') value.security = [{ nexusSession: [] }];
+  if (requestBody) {
+    value.requestBody = {
+      required: true,
+      content: { 'application/json': { schema: responseSchema() } }
+    };
+  }
+  return value;
+}
+
+function openApiDocument() {
+  const paths = {
+    '/health': { get: endpoint('Health check', 'public') },
+    '/api/me': { get: endpoint('Current Discord session and CSRF material', 'public') },
+    '/api/products': { get: endpoint('Kingdom systems catalogue') },
+    '/api/status': { get: endpoint('Runtime readiness for all Kingdom systems') },
+    '/api/live': { get: endpoint('Live carry operations snapshot') },
+    '/api/live/stream': { get: { ...endpoint('Server-sent live operations stream'), responses: { 200: { description: 'text/event-stream' }, 401: { description: 'Discord sign-in required' } } } },
+    '/api/intelligence': { get: endpoint('Operational intelligence and trend history') },
+    '/api/sentinel': { get: endpoint('Security posture; incident details are operator-only') },
+    '/api/network/summary': { get: endpoint('Connected and registered guild network summary') },
+    '/api/launcher': { get: endpoint('Launcher destinations and install state') },
+    '/api/companion': { get: endpoint('Companion builds, guides, dungeons and readiness rules') },
+    '/api/creators': { get: endpoint('Creator campaigns') },
+    '/api/openapi': { get: endpoint('OpenAPI 3.1 document') },
+    '/api/sdk/kingdom-nexus.js': { get: { ...endpoint('Zero-dependency JavaScript SDK'), responses: { 200: { description: 'JavaScript ES module' } } } },
+    '/api/identity': { get: endpoint('Discord/Roblox identity registry', 'operator') },
+    '/api/applications': { get: endpoint('Application review registry', 'operator') },
+    '/api/vault': { get: endpoint('Verified backup registry', 'operator') },
+    '/api/studio/layouts': { get: endpoint('Studio layouts', 'operator'), post: endpoint('Create or update Studio layout', 'operator', true) },
+    '/api/audit': { get: endpoint('Operator audit trail', 'operator') },
+    '/api/admin/state': { get: endpoint('Consolidated administrative state', 'operator') },
+    '/api/admin/vault/verify': { get: endpoint('Verify all retained Vault backups', 'operator') },
+    '/api/network/tenants': { post: endpoint('Register or update a network tenant', 'operator', true) },
+    '/api/network/tenants/{id}': { delete: endpoint('Remove a network tenant', 'operator') },
+    '/api/identity/link': { post: endpoint('Link a Discord identity to Roblox metadata', 'operator', true) },
+    '/api/identity/{discordId}': { delete: endpoint('Unlink an identity profile', 'operator') },
+    '/api/companion/builds': { post: endpoint('Create or update Companion build', 'operator', true) },
+    '/api/companion/builds/{id}': { delete: endpoint('Delete Companion build', 'operator') },
+    '/api/companion/guides': { post: endpoint('Create or update Companion guide', 'operator', true) },
+    '/api/companion/guides/{id}': { delete: endpoint('Delete Companion guide', 'operator') },
+    '/api/companion/dungeons': { post: endpoint('Create or update Companion dungeon', 'operator', true) },
+    '/api/companion/dungeons/{id}': { delete: endpoint('Delete Companion dungeon', 'operator') },
+    '/api/companion/readiness': { post: endpoint('Create or update carry-readiness rule', 'operator', true) },
+    '/api/companion/readiness/{id}': { delete: endpoint('Delete carry-readiness rule', 'operator') },
+    '/api/creators/campaigns': { post: endpoint('Create or update creator campaign', 'operator', true) },
+    '/api/creators/campaigns/{id}': { delete: endpoint('Delete creator campaign', 'operator') },
+    '/api/studio/layouts/{id}/publish': { post: endpoint('Publish an immutable Studio version', 'operator', true) },
+    '/api/studio/layouts/{id}': { delete: endpoint('Delete Studio layout', 'operator') },
+    '/api/sentinel/incidents': { post: endpoint('Open Sentinel incident', 'operator', true) },
+    '/api/sentinel/incidents/{id}': { patch: endpoint('Update Sentinel incident', 'operator', true) },
+    '/api/applications/{id}/notes': { post: endpoint('Add application review note', 'operator', true) },
+    '/api/applications/{id}/review': { post: endpoint('Finalize application decision', 'operator', true) },
+    '/api/vault/backup': { post: endpoint('Create verified Vault backup', 'operator', true) },
+    '/api/vault/restore': { post: endpoint('Restore verified Vault backup with safety snapshot', 'operator', true) },
+    '/api/ai': { post: endpoint('Kingdom AI request; Worker edge may intercept this path', 'operator', true) }
+  };
+  return {
+    openapi: '3.1.0',
+    info: {
+      title: 'Kingdom Nexus API',
+      version: NEXUS_VERSION,
+      description: 'Authenticated control plane for Kingdom Carries. Member reads require a live Discord guild session. Operator mutations also require current operator privileges and X-Kingdom-CSRF.'
+    },
+    servers: [{ url: String(process.env.KINGDOM_NEXUS_PUBLIC_URL ?? '').trim() || 'http://127.0.0.1:8791' }],
+    tags: [
+      { name: 'public', description: 'Unauthenticated health/login bootstrap only.' },
+      { name: 'member', description: 'Verified current Kingdom guild member.' },
+      { name: 'operator', description: 'Current Administrator/Manage Guild or explicitly allowlisted operator.' }
     ],
-    operator: [
-      'GET /api/identity', 'GET /api/applications', 'GET /api/vault', 'GET /api/studio/layouts', 'GET /api/audit',
-      'GET /api/admin/state', 'GET /api/admin/vault/verify',
-      'POST /api/network/tenants', 'DELETE /api/network/tenants/:id',
-      'POST /api/identity/link', 'DELETE /api/identity/:discordId',
-      'POST /api/companion/builds', 'DELETE /api/companion/builds/:id',
-      'POST /api/companion/guides', 'DELETE /api/companion/guides/:id',
-      'POST /api/creators/campaigns', 'DELETE /api/creators/campaigns/:id',
-      'POST /api/studio/layouts', 'POST /api/studio/layouts/:id/publish', 'DELETE /api/studio/layouts/:id',
-      'POST /api/sentinel/incidents', 'PATCH /api/sentinel/incidents/:id',
-      'POST /api/applications/:id/notes', 'POST /api/applications/:id/review',
-      'POST /api/vault/backup', 'POST /api/vault/restore', 'POST /api/ai'
-    ]
+    components: {
+      securitySchemes: {
+        nexusSession: {
+          type: 'apiKey',
+          in: 'cookie',
+          name: '__Host-kingdom_nexus_session',
+          description: 'HttpOnly Discord OAuth session cookie. Operator writes additionally require X-Kingdom-CSRF.'
+        }
+      }
+    },
+    paths
   };
 }
 
@@ -309,12 +411,46 @@ function launcherPayload() {
   };
 }
 
+async function networkPayload(client, primaryGuild, primaryGuildId, nexus, primaryState) {
+  const base = buildNetworkPayload(nexus, primaryGuild, primaryState);
+  const connected = [];
+  for (const guild of client.guilds.cache.values()) {
+    const state = guild.id === primaryGuildId ? primaryState : await readGuildState(guild.id).catch(() => ({}));
+    connected.push({
+      id: guild.id,
+      discordId: guild.id,
+      name: guild.name,
+      members: guild.memberCount ?? null,
+      carries: Number(state?.stats?.completedCarries ?? state?.platform?.analytics?.completedCarries ?? 0),
+      status: guild.available === false ? 'unavailable' : 'active',
+      connected: true,
+      primary: guild.id === primaryGuildId
+    });
+  }
+  const connectedIds = new Set(connected.map((item) => item.id));
+  const registeredOnly = (base.guilds ?? []).filter((item) => !connectedIds.has(String(item.id ?? item.discordId))).map((item) => ({ ...item, connected: false }));
+  const guilds = [...connected, ...registeredOnly];
+  return {
+    ...base,
+    guilds,
+    totalGuilds: guilds.length,
+    connectedGuilds: connected.length,
+    registeredGuilds: guilds.length,
+    totalMembers: guilds.reduce((sum, item) => sum + (Number(item.members) || 0), 0),
+    members: guilds.reduce((sum, item) => sum + (Number(item.members) || 0), 0),
+    totalCarries: guilds.reduce((sum, item) => sum + (Number(item.carries) || 0), 0),
+    lastSync: new Date().toISOString()
+  };
+}
+
 async function apiHandler(req, res, client, url) {
   const guild = chosenGuild(client);
   const guildId = guild?.id ?? String(process.env.GUILD_ID ?? '').trim();
   if (!guildId) return json(res, 503, { error: 'Kingdom Core is not ready.' });
 
-  if (req.method === 'GET' && url.pathname === '/health') return json(res, 200, { ok: true, product: 'Kingdom Nexus' });
+  if (req.method === 'GET' && url.pathname === '/health') {
+    return json(res, 200, { ok: true, product: 'Kingdom Nexus', version: NEXUS_VERSION, guildId });
+  }
 
   const existingSession = getNexusSession(req);
   const validatedSession = existingSession ? await revalidateNexusSession(req, guild) : null;
@@ -372,19 +508,23 @@ async function apiHandler(req, res, client, url) {
   if (req.method === 'GET' && url.pathname === '/api/network/summary') {
     const nexus = await getNexusState(guildId);
     const state = await readGuildState(guildId);
-    return json(res, 200, buildNetworkPayload(nexus, guild, state));
+    return json(res, 200, await networkPayload(client, guild, guildId, nexus, state));
   }
+
   if (req.method === 'GET' && url.pathname === '/api/companion') {
     const nexus = await getNexusState(guildId);
     const state = await readGuildState(guildId);
     return json(res, 200, buildCompanionPayload(nexus, state));
   }
+
   if (req.method === 'GET' && url.pathname === '/api/creators') {
     const nexus = await getNexusState(guildId);
     return json(res, 200, buildCreatorsPayload(nexus));
   }
 
-  if (req.method === 'GET' && OPERATOR_READS.has(url.pathname) && !adminAuthorized(req)) return json(res, 403, { error: 'Operator access is required.' });
+  if (req.method === 'GET' && OPERATOR_READS.has(url.pathname) && !adminAuthorized(req)) {
+    return json(res, 403, { error: 'Operator access is required.' });
+  }
 
   if (req.method === 'GET' && url.pathname === '/api/identity') {
     const nexus = await getNexusState(guildId);
@@ -419,7 +559,7 @@ async function apiHandler(req, res, client, url) {
   }
 
   const isAdminPath = url.pathname.startsWith('/api/admin/');
-  const isWrite = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method);
+  const isWrite = WRITE_METHODS.has(req.method);
   if ((isAdminPath || isWrite) && !adminAuthorized(req)) return json(res, 403, { error: 'Operator access is required.' });
   if (isWrite && !rateAllowed(req, 'write', 60, 60_000)) return json(res, 429, { error: 'Too many operator requests. Try again shortly.' });
   if (isWrite && !validBrowserWrite(req)) return json(res, 403, { error: 'Security validation failed. Refresh Nexus and try again.' });
@@ -434,8 +574,7 @@ async function apiHandler(req, res, client, url) {
   }
 
   if (req.method === 'POST' && url.pathname === '/api/network/tenants') {
-    const body = await readBody(req);
-    const result = await upsertTenant(guildId, body);
+    const result = await upsertTenant(guildId, await readBody(req));
     return auditedResult(res, guildId, req, 'network.tenant.upsert', 'tenant', result.id, result);
   }
   const tenantDelete = url.pathname.match(/^\/api\/network\/tenants\/([^/]+)$/);
@@ -446,8 +585,7 @@ async function apiHandler(req, res, client, url) {
   }
 
   if (req.method === 'POST' && url.pathname === '/api/identity/link') {
-    const body = await readBody(req);
-    const result = await linkIdentity(guildId, body);
+    const result = await linkIdentity(guildId, await readBody(req));
     return auditedResult(res, guildId, req, 'identity.link', 'identity', result.discordId, result);
   }
   const identityDelete = url.pathname.match(/^\/api\/identity\/([^/]+)$/);
@@ -477,6 +615,28 @@ async function apiHandler(req, res, client, url) {
     const id = decodeURIComponent(guideDelete[1]);
     const removed = await removeCompanionGuide(guildId, id);
     return auditedResult(res, guildId, req, 'companion.guide.delete', 'guide', id, { ok: true, removed });
+  }
+
+  if (req.method === 'POST' && url.pathname === '/api/companion/dungeons') {
+    const result = await upsertCompanionDungeon(guildId, await readBody(req));
+    return auditedResult(res, guildId, req, 'companion.dungeon.upsert', 'dungeon', result.id, result);
+  }
+  const dungeonDelete = url.pathname.match(/^\/api\/companion\/dungeons\/([^/]+)$/);
+  if (req.method === 'DELETE' && dungeonDelete) {
+    const id = decodeURIComponent(dungeonDelete[1]);
+    const removed = await removeCompanionDungeon(guildId, id);
+    return auditedResult(res, guildId, req, 'companion.dungeon.delete', 'dungeon', id, { ok: true, removed });
+  }
+
+  if (req.method === 'POST' && url.pathname === '/api/companion/readiness') {
+    const result = await upsertCompanionReadiness(guildId, await readBody(req));
+    return auditedResult(res, guildId, req, 'companion.readiness.upsert', 'readiness', result.id, result);
+  }
+  const readinessDelete = url.pathname.match(/^\/api\/companion\/readiness\/([^/]+)$/);
+  if (req.method === 'DELETE' && readinessDelete) {
+    const id = decodeURIComponent(readinessDelete[1]);
+    const removed = await removeCompanionReadiness(guildId, id);
+    return auditedResult(res, guildId, req, 'companion.readiness.delete', 'readiness', id, { ok: true, removed });
   }
 
   if (req.method === 'POST' && url.pathname === '/api/creators/campaigns') {
@@ -595,8 +755,8 @@ export async function startNexusPlatform(client) {
       return staticFile(res, '/index.html');
     } catch (error) {
       const status = Number(error?.statusCode ?? 500);
-      console.error('[Nexus] request failed:', error);
-      return json(res, status, { error: status === 500 ? 'Kingdom Nexus request failed.' : String(error.message ?? error) });
+      console.error('[Nexus] request failed:', status >= 500 ? error : error?.message ?? error);
+      return json(res, status, { error: status >= 500 ? 'Kingdom Nexus request failed.' : String(error.message ?? error) });
     }
   });
 
