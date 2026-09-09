@@ -41,6 +41,26 @@ export async function removeCompanionGuide(guildId, id) {
   });
 }
 
+export async function removeCompanionDungeon(guildId, id) {
+  const target = safeRecordId(id, 'dungeon id');
+  return mutateNexusState(guildId, (nexus) => {
+    const current = nexus.companion?.dungeons?.[target];
+    if (!current) throw Object.assign(new Error('dungeon not found.'), { statusCode: 404 });
+    delete nexus.companion.dungeons[target];
+    return current;
+  });
+}
+
+export async function removeCompanionReadiness(guildId, id) {
+  const target = safeRecordId(id, 'readiness id');
+  return mutateNexusState(guildId, (nexus) => {
+    const current = nexus.companion?.readiness?.[target];
+    if (!current) throw Object.assign(new Error('readiness rule not found.'), { statusCode: 404 });
+    delete nexus.companion.readiness[target];
+    return current;
+  });
+}
+
 export async function removeCreatorCampaign(guildId, id) {
   const target = safeRecordId(id, 'campaign id');
   return mutateNexusState(guildId, (nexus) => {
