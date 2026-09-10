@@ -1,5 +1,4 @@
 import { randomBytes, timingSafeEqual } from 'node:crypto';
-import { PermissionFlagsBits } from 'discord.js';
 
 const oauthStates = new Map();
 const sessions = new Map();
@@ -86,9 +85,6 @@ function cookieSecuritySuffix() {
 }
 
 function sessionSameSite() {
-  // Production Nexus is intentionally embeddable only by the Kingdom Core bot
-  // website. SameSite=None is required for the secure HttpOnly session cookie
-  // to accompany that cross-site iframe; local HTTP development stays Lax.
   return secureCookie() ? 'None' : 'Lax';
 }
 
@@ -131,23 +127,8 @@ function safeEqual(left, right) {
   return timingSafeEqual(a, b);
 }
 
-function csvIds(value) {
-  return new Set(
-    String(value ?? '')
-      .split(',')
-      .map((item) => item.trim())
-      .filter(Boolean)
-  );
-}
-
-function operatorForMember(member, userId) {
-  if (!member) return false;
-  const roleAllowlist = csvIds(process.env.KINGDOM_NEXUS_OPERATOR_ROLE_IDS);
-  const userAllowlist = csvIds(process.env.KINGDOM_NEXUS_OPERATOR_USER_IDS);
-  const permissionOperator = member.permissions.has(PermissionFlagsBits.Administrator) || member.permissions.has(PermissionFlagsBits.ManageGuild);
-  const roleOperator = [...roleAllowlist].some((roleId) => member.roles.cache.has(roleId));
-  const userOperator = userAllowlist.has(String(userId));
-  return permissionOperator || roleOperator || userOperator;
+function guildOwner(guild, userId) {
+  return Boolean(guild?.ownerId && String(guild.ownerId) === String(userId ?? ''));
 }
 
 export function getNexusSession(req) {
@@ -165,35 +146,29 @@ export function getNexusSession(req) {
 export async function revalidateNexusSession(req, guild) {
   const session = getNexusSession(req);
   if (!session) return null;
-
-  // Fail closed if Discord is unavailable. Keep the record briefly so a
-  // transient gateway reconnect does not force OAuth, but grant no access
-  // until membership can be verified again.
-  if (!guild) return null;
+  if (!guild || !guildOwner(guild, session.user?.id)) {
+    if (session.id) sessions.delete(session.id);
+    return null;
+  }
 
   const now = Date.now();
   let member = guild.members.cache.get(String(session.user?.id ?? '')) ?? null;
   const stale = now - Number(session.lastValidatedAt ?? 0) >= SESSION_REVALIDATE_MS;
   if (!member || stale) member = await guild.members.fetch(String(session.user?.id ?? '')).catch(() => null);
-  if (!member) {
+  if (!member || !guildOwner(guild, member.id)) {
     if (session.id) sessions.delete(session.id);
     return null;
   }
 
-  const wasOperator = Boolean(session.operator);
-  const operator = operatorForMember(member, session.user.id);
   session.guildMember = { id: member.id, displayName: member.displayName };
-  session.operator = operator;
+  session.operator = true;
+  session.owner = true;
   session.lastValidatedAt = now;
-
-  // If elevated access was revoked, rotate CSRF material immediately so an
-  // already-open operator page cannot replay a previously issued write token.
-  if (wasOperator && !operator) session.csrfToken = token(24);
   return session;
 }
 
 export function isOperatorSession(req) {
-  return Boolean(getNexusSession(req)?.operator);
+  return Boolean(getNexusSession(req)?.owner && getNexusSession(req)?.operator);
 }
 
 export function publicSession(req) {
@@ -203,6 +178,7 @@ export function publicSession(req) {
     user: session.user,
     guildMember: session.guildMember,
     operator: Boolean(session.operator),
+    owner: Boolean(session.owner),
     expiresAt: new Date(session.expiresAt).toISOString()
   };
 }
@@ -220,7 +196,7 @@ export function validCsrfToken(req) {
 function noStoreHeaders(extra = {}) {
   return {
     'cache-control': 'no-store, max-age=0',
-    'pragma': 'no-cache',
+    pragma: 'no-cache',
     ...extra
   };
 }
@@ -326,13 +302,11 @@ export async function completeDiscordOAuth(req, res, url, guild) {
   }
 
   const member = guild ? await guild.members.fetch(user.id).catch(() => null) : null;
-  if (!member) {
+  if (!member || !guildOwner(guild, user.id)) {
     res.writeHead(403, noStoreHeaders({ 'content-type': 'text/plain; charset=utf-8' }));
-    res.end('Your Discord account is not a member of this Kingdom guild.');
+    res.end('Kingdom Nexus is restricted to the owner of the configured Kingdom Carries guild.');
     return;
   }
-
-  const operator = operatorForMember(member, user.id);
 
   for (const [sessionId, existing] of sessions) {
     if (existing.user?.id === String(user.id)) sessions.delete(sessionId);
@@ -355,7 +329,8 @@ export async function completeDiscordOAuth(req, res, url, guild) {
       id: member.id,
       displayName: member.displayName
     },
-    operator
+    operator: true,
+    owner: true
   });
   prune();
 
