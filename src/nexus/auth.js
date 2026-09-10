@@ -85,10 +85,17 @@ function cookieSecuritySuffix() {
   return secureCookie() ? '; Secure' : '';
 }
 
+function sessionSameSite() {
+  // Production Nexus is intentionally embeddable only by the Kingdom Core bot
+  // website. SameSite=None is required for the secure HttpOnly session cookie
+  // to accompany that cross-site iframe; local HTTP development stays Lax.
+  return secureCookie() ? 'None' : 'Lax';
+}
+
 function setSessionCookie(res, value, maxAgeSeconds) {
   appendSetCookie(
     res,
-    `${sessionCookieName()}=${encodeURIComponent(value)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${maxAgeSeconds}; Priority=High${cookieSecuritySuffix()}`
+    `${sessionCookieName()}=${encodeURIComponent(value)}; HttpOnly; SameSite=${sessionSameSite()}; Path=/; Max-Age=${maxAgeSeconds}; Priority=High${cookieSecuritySuffix()}`
   );
 }
 
@@ -105,7 +112,7 @@ function clearOAuthStateCookie(res) {
 }
 
 function clearSessionCookie(res) {
-  appendSetCookie(res, `${SECURE_SESSION_COOKIE}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0; Priority=High; Secure`);
+  appendSetCookie(res, `${SECURE_SESSION_COOKIE}=; HttpOnly; SameSite=None; Path=/; Max-Age=0; Priority=High; Secure`);
   appendSetCookie(res, `${LOCAL_SESSION_COOKIE}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0; Priority=High${cookieSecuritySuffix()}`);
 }
 
