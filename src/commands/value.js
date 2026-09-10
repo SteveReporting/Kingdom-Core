@@ -5,6 +5,7 @@ import {
   recognizeMarketPhoto,
   searchMarketItems
 } from '../services/marketIntelligence.js';
+import { recordMarketSnapshot } from '../dq/marketBridge.js';
 
 const RARITY_COLORS = {
   Grey: 0x99aab5,
@@ -223,6 +224,14 @@ export async function execute(interaction) {
         return interaction.editReply(`That POT is above the canonical **${market.item_name} • ${market.rarity}** range of **${market.min_potential}–${market.max_potential}**.`);
       }
     }
+
+    await recordMarketSnapshot(interaction.guildId, {
+      itemKey,
+      market,
+      pot,
+      actorId: interaction.user.id,
+      source: 'kmi-value-command'
+    }).catch((error) => console.warn('[KMI → DQ bridge]', error?.message || error));
 
     return interaction.editReply({
       embeds: [buildEmbed({
