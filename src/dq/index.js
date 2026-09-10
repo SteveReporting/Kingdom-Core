@@ -30,6 +30,7 @@ export {
   setBankConfig,
   transferBankBalance
 } from './assetBank.js';
+export { recordMarketSnapshot } from './marketBridge.js';
 
 import { getGenomeSnapshot, recordDungeonRun } from './genome.js';
 import { getSentinelSnapshot, ingestSentinelSignal } from './sentinel.js';
