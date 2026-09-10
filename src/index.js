@@ -142,7 +142,8 @@ client.on(Events.GuildMemberAdd, async (member) => {
 });
 
 client.on(Events.GuildMemberRemove, async (member) => {
-  await updateServerStats(member.guild.id, 'member.left', { userId: member.id }).catch(() => null);
+  await updateServerStats(member.guild).catch(() => null);
+  await trackPlatformEvent(member.guild.id, 'member.left', { userId: member.id }).catch(() => null);
 });
 
 client.on(Events.GuildAuditLogEntryCreate, async (entry, guild) => {
