@@ -3,6 +3,7 @@ import { REST, Routes } from 'discord.js';
 import { data as uiUpgradeCommand } from './commands/uipgrade.js';
 import { data as setup3Command } from './commands/setup3.js';
 import { data as modCommand } from './commands/mod.js';
+import { data as valueCommand } from './commands/value.js';
 
 const token = process.env.TOKEN;
 const clientId = process.env.CLIENT_ID || '1546171480952283166';
@@ -17,7 +18,7 @@ if (!stagingGuildId) {
   process.exit(1);
 }
 
-const commands = [uiUpgradeCommand, setup3Command, modCommand].map((x) => x.toJSON());
+const commands = [uiUpgradeCommand, setup3Command, modCommand, valueCommand].map((x) => x.toJSON());
 const rest = new REST({ version: '10' }).setToken(token);
 
 try {
