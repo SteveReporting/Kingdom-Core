@@ -68,11 +68,43 @@ for (const endpoint of [
 ]) {
   if (!platform.includes(endpoint)) failures.push(`Nexus endpoint missing: ${endpoint}`);
 }
-for (const lifecyclePath of [
-  'DELETE /api/network/tenants/:id', 'DELETE /api/identity/:discordId', 'DELETE /api/companion/builds/:id',
-  'DELETE /api/companion/guides/:id', 'DELETE /api/creators/campaigns/:id', 'DELETE /api/studio/layouts/:id'
-]) {
-  if (!platform.includes(lifecyclePath)) failures.push(`Nexus lifecycle endpoint missing: ${lifecyclePath}`);
+const lifecycleRouteChecks = [
+  ['DELETE /api/network/tenants/:id', [
+    'tenantDelete = url.pathname.match',
+    "req.method === 'DELETE' && tenantDelete",
+    'removeTenant(guildId, id)'
+  ]],
+  ['DELETE /api/identity/:discordId', [
+    'identityDelete = url.pathname.match',
+    "req.method === 'DELETE' && identityDelete",
+    'unlinkIdentity(guildId, id)'
+  ]],
+  ['DELETE /api/companion/builds/:id', [
+    'buildDelete = url.pathname.match',
+    "req.method === 'DELETE' && buildDelete",
+    'removeCompanionBuild(guildId, id)'
+  ]],
+  ['DELETE /api/companion/guides/:id', [
+    'guideDelete = url.pathname.match',
+    "req.method === 'DELETE' && guideDelete",
+    'removeCompanionGuide(guildId, id)'
+  ]],
+  ['DELETE /api/creators/campaigns/:id', [
+    'campaignDelete = url.pathname.match',
+    "req.method === 'DELETE' && campaignDelete",
+    'removeCreatorCampaign(guildId, id)'
+  ]],
+  ['DELETE /api/studio/layouts/:id', [
+    'layoutDelete = url.pathname.match',
+    "req.method === 'DELETE' && layoutDelete",
+    'removeStudioLayout(guildId, id)'
+  ]]
+];
+
+for (const [lifecyclePath, markers] of lifecycleRouteChecks) {
+  if (markers.some((marker) => !platform.includes(marker))) {
+    failures.push(`Nexus lifecycle endpoint missing: ${lifecyclePath}`);
+  }
 }
 for (const capability of ['safeRecordId','safeDiscordId','assertPlainObject','safeHttpUrl','FORBIDDEN_RECORD_KEYS']) {
   if (!validation.includes(capability)) failures.push(`Nexus validation capability missing: ${capability}`);
