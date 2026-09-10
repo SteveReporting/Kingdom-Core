@@ -43,6 +43,9 @@ jobs:
       - name: Import Kingdom Nexus
         run: |
           node -e "Promise.all([import('./src/nexus/catalog.js'),import('./src/nexus/validation.js'),import('./src/nexus/state.js'),import('./src/nexus/domain.js'),import('./src/nexus/lifecycle.js'),import('./src/nexus/ops.js'),import('./src/nexus/auth.js'),import('./src/nexus/applicationOps.js'),import('./src/nexus/platform.js'),import('./src/nexus/sdk-browser.js')]).then(()=>console.log('Kingdom Nexus imports OK'))"
+      - name: Import Dungeon Quest systems
+        run: |
+          node -e "Promise.all([import('./src/commands/dq.js'),import('./src/dq/store.js'),import('./src/dq/genome.js'),import('./src/dq/digitalTwin.js'),import('./src/dq/oracle.js'),import('./src/dq/sentinel.js'),import('./src/dq/assetBank.js'),import('./src/dq/index.js')]).then(()=>console.log('Dungeon Quest systems imports OK'))"
       - name: UIpgrade self-test
         run: npm run selftest:uipgrade
       - name: setup3 organizer self-test
@@ -57,3 +60,5 @@ jobs:
         run: npm run selftest:v5
       - name: Approved roadmap v10 self-test
         run: npm run selftest:v10
+      - name: Dungeon Quest systems self-test
+        run: npm run selftest:dq
