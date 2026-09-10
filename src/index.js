@@ -11,6 +11,7 @@ import { execute as executeUiUpgrade } from './commands/uipgrade.js';
 import { execute as executeSetup3 } from './commands/setup3.js';
 import { execute as executeMod } from './commands/mod.js';
 import { autocomplete as autocompleteValue, execute as executeValue } from './commands/value.js';
+import { autocomplete as autocompleteDQ, execute as executeDQ } from './commands/dq.js';
 import { startNexusPlatform } from './nexus/platform.js';
 import { handleApplicationLinkButton, handleApplicationLinkModal } from './services/applicationLinks.js';
 import {
@@ -141,8 +142,7 @@ client.on(Events.GuildMemberAdd, async (member) => {
 });
 
 client.on(Events.GuildMemberRemove, async (member) => {
-  await updateServerStats(member.guild).catch(() => null);
-  await trackPlatformEvent(member.guild.id, 'member.left', { userId: member.id }).catch(() => null);
+  await updateServerStats(member.guild.id, 'member.left', { userId: member.id }).catch(() => null);
 });
 
 client.on(Events.GuildAuditLogEntryCreate, async (entry, guild) => {
@@ -171,6 +171,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
   try {
     if (interaction.isAutocomplete()) {
       if (interaction.commandName === 'value') { await autocompleteValue(interaction); return; }
+      if (interaction.commandName === 'dq') { await autocompleteDQ(interaction); return; }
     }
 
     if (interaction.isChatInputCommand()) {
@@ -178,6 +179,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       if (interaction.commandName === 'setup3') { await executeSetup3(interaction); return; }
       if (interaction.commandName === 'mod') { await executeMod(interaction); return; }
       if (interaction.commandName === 'value') { await executeValue(interaction); return; }
+      if (interaction.commandName === 'dq') { await executeDQ(interaction); return; }
     }
 
     if (interaction.isButton()) {
