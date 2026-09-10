@@ -1,174 +1,143 @@
 # 👑 Kingdom Core
 
-**The system behind the realm.**
+**The system behind Kingdom Carries.**
 
-Kingdom Core is the all-in-one Discord operating platform for **Kingdom Carries**, a Dungeon Quest community.
+Kingdom Core is the Discord runtime and service layer used by Kingdom Carries. The repository also serves **Kingdom Nexus**, the authenticated web control plane, and the optional private HTTP bridge consumed by the Kingdom Carries HQ website.
 
-The bot intentionally uses one administrative setup command: **`/setup`**.
+This README documents the code that is deployed by the current repository. It intentionally does not list retired slash commands or roadmap-only website actions.
 
-Running `/setup` installs, migrates or repairs the complete Kingdom Core platform. It is designed for existing servers as well as fresh installs: existing roles, channels, panels and stored state are reused wherever possible rather than intentionally wiping the guild.
+## Discord application
 
-## Application
-
-- **Name:** Kingdom Core
 - **Application ID:** `1546171480952283166`
-- **Invite with Administrator:**
-  `https://discord.com/oauth2/authorize?client_id=1546171480952283166&permissions=8&scope=bot%20applications.commands`
+- **Install URL:** `https://discord.com/oauth2/authorize?client_id=1546171480952283166&permissions=1374389534294&scope=bot%20applications.commands`
 
-> Administrator is requested because `/setup` manages roles, categories, channels, permission overwrites, webhooks and server security. The command itself is restricted to server administrators.
+The install URL uses the same permission integer as the public Kingdom Core website. Individual commands still perform their own user-permission checks, and Discord role hierarchy can further limit moderation actions.
 
-## Commands
+## Slash commands deployed by `npm run deploy`
 
-Kingdom Core deliberately keeps the slash-command surface small:
+`src/deploy-commands.js` currently registers exactly four top-level commands:
 
-- `/setup` — install, migrate and repair the complete platform
-- `/mod` — moderation controls
+### `/setup3`
 
-The old `/setup2`, `/setup3` and `/setup4` commands have been retired. Their systems are now included automatically in `/setup`.
+Curates the Kingdom server category layout.
 
-## Compact server structure
+- Administrator-only command.
+- `/setup3 preview:true` analyses the live layout without moving or creating anything.
+- `/setup3` applies the curated organisation.
+- Requires the bot to have **View Channel** and **Manage Channels**.
+- Carries, Market & Treasury, and Knights are treated as protected zones by the current organiser.
+- Channel permission overwrites are preserved when a channel is moved.
+- Ambiguous channels are left in place instead of being guessed into a category.
+- The command does not delete channels.
 
-`/setup` consolidates Kingdom-managed areas into seven main categories instead of creating a separate category for every subsystem:
+Always run the preview first on a server whose current structure matters.
 
-1. **👑 START HERE** — welcome, rules, verification and server information
-2. **🏰 COMMUNITY** — chat, progression, Houses, events and public Kingdom systems
-3. **⚔️ CARRIES** — carry desk, live queue, parties and private carry missions
-4. **💰 MARKET & TREASURY** — marketplace, treasury, trading and economy systems
-5. **🕯️ SUPPORT & APPLICATIONS** — support, applications and private petitions
-6. **🛡️ KNIGHTS** — carrier operations, trials, training and service controls
-7. **👑 STAFF HQ** — staff operations, security, analytics and platform control
+### `/uipgrade`
 
-Existing Kingdom Core channels are moved into the consolidated layout while retaining their channel-level permission overwrites. Obsolete empty Kingdom categories are removed. Safe empty duplicate managed channels are removed automatically; populated duplicates are preserved rather than deleting messages or staff history.
+Rebuilds configured Kingdom presentation surfaces with the current UI layer.
 
-## Systems installed by `/setup`
+- Administrator-only command.
+- Requires **View Channel**, **Read Message History**, **Send Messages** and **Manage Messages** for the bot.
+- Human conversation/history, announcement/news channels, community chat, Dungeon Quest chat, media/showcase, active tickets/carry tickets and security/audit logs are protected from the presentation purge targets in the current implementation.
 
-### Roles and progression
+### `/mod`
 
-- Crown and leadership hierarchy
-- Staff and moderation hierarchy
-- Royal Vanguard / Knight carrier hierarchy
-- Trial carrier role
-- Member progression roles
-- Dungeon Quest level roles
-- Houses
-- Notification roles
+Discord moderation actions with Discord permission checks and role-hierarchy enforcement.
 
-### Carry operations
+Subcommands:
 
-- Free carry request system
-- Private carry tickets
-- Grouped compatible requests
-- Live queue
-- Carrier claiming and assignment
-- Ready checks
-- Carry state machine
-- Return-to-pool / recovery flow
-- Completion tracking
-- Demand and wait-time forecasting
-- Carrier workload, service time and coverage
+- `/mod timeout`
+- `/mod untimeout`
+- `/mod kick`
+- `/mod ban`
+- `/mod unban`
 
-### Carrier / Knight systems
+Where a configured moderation-log channel exists in Kingdom state, successful actions are written there.
 
-- Carrier profiles
-- Trial progression
-- 5 successful supervised-run requirement
-- Service tracking
-- Reputation and commendations
-- Skill / coverage systems
-- Carrier document library and control surfaces
+### `/value`
 
-### Member and Kingdom systems
+Kingdom Market Intelligence (KMI) item valuation and fair-trade checking.
 
-- Member identity records
-- Kingdom XP and progression
-- Prestige
-- Houses and House standings
-- Daily / weekly / Kingdom quests
-- Achievements and contribution tracking
-- Referrals
-- Mentor network
-- Verification and level intelligence
+- `mode: Market Value` values an item.
+- `mode: Is This Fair?` compares requested gold with the current KMI estimate.
+- Supports item autocomplete and optional item screenshots.
+- POT, upgrade and base values can be supplied to improve the estimate.
+- If KMI does not have enough reliable observations, the command reports that instead of inventing a price.
 
-### Community and events
+## Kingdom Nexus
 
-- Royal Calendar
-- Event creation and RSVP
-- Team building / tournament foundations
-- Notification routing
-- Royal Archives / knowledge tools
-- Community maintenance systems
+The native Nexus server is implemented in `src/nexus/platform.js` and the browser application lives in `web/nexus/`.
 
-### Marketplace and treasury
+### Public endpoint
 
-- Marketplace listings
-- Search and market intelligence
-- Watchlists
-- Treasury inventory
-- Treasury requests and approvals
-- Item lending / loan ledger
-- Economy audit history
+- `GET /health` — returns `{ ok, product, version, guildId }` when Nexus is ready.
 
-### Applications and support
+### Discord authentication
 
-- Application hub
-- Staff / carrier / creator application workflows
-- Structured review metrics and scoring
-- Private support petitions
-- Ticket ownership
-- SLA / escalation tracking
-- Resolution summaries
+- `GET /auth/discord`
+- `GET /auth/discord/callback`
+- `GET /auth/logout`
+- `GET /api/me`
 
-### Staff, analytics and security
+Authenticated sessions are revalidated before protected Nexus API access.
 
-- Royal Control Plane
-- Carry operations dashboard
-- Application command centre
-- Ticket command centre
-- Analytics command centre
-- Security command centre
-- Audit ledger
-- Approved bot and webhook registry
-- Permission drift / digital twin
-- Emergency lockdown and repair systems
-- AutoMod and spam protection
+### Authenticated read surfaces
 
-### Platform / website integration
+The current Nexus exposes authenticated reads for products, status, live operations, intelligence, Sentinel, network summary, launcher, Companion, creators, the OpenAPI document and the JavaScript SDK. Live operations also expose a Server-Sent Events stream at `/api/live/stream`.
 
-- Optional HTTP platform API
-- Live WebSocket updates
-- Public operational snapshot
-- Carry, marketplace, leaderboard and House data surfaces
-- Optional PostgreSQL and Redis adapters
-- Background maintenance / workflow engine
-- Runtime diagnostics and platform assurance
+Operator-only reads include identity administration, applications, Vault, Studio layouts and audit records. Operator mutations use CSRF checks plus the Nexus authorization layer.
 
-## Idempotent migration behaviour
+The production public URL configured by `.env.example` is:
 
-`/setup` is safe to rerun as a repair/migration command. It will:
+`https://kingdom-nexus.davidtennyson846.workers.dev`
 
-- find and reuse existing Kingdom roles and channels
-- add missing systems
-- repair permission matrices
-- refresh pinned control panels
-- preserve existing Kingdom state in `data/<guild-id>.json`
-- merge compatible duplicate carry parties
-- consolidate Kingdom-managed categories
-- remove only safe empty duplicate channels automatically
-- preserve populated duplicates rather than deleting message history
-- verify the final role hierarchy at the end
+## Kingdom Carries HQ bridge
 
-It does **not** intentionally wipe the server or delete arbitrary user-created content.
+`src/services/platformApiV4.js` is the private HTTP bridge used by the public HQ website when `ENABLE_PLATFORM_API=true`.
 
-## Security model
+Public/read endpoints include:
 
-The bot account can have Discord Administrator so it has enough authority to build and repair the platform, but `/setup` is restricted to server administrators.
+- `/health`
+- `/api/overview`
+- `/api/carries`
+- `/api/houses`
+- `/api/marketplace`
+- `/api/leaderboard`
 
-Kingdom Core does **not** contain `eval`, arbitrary remote code execution, remote shell functionality or token logging.
+Token-protected endpoints include carry creation, member profile reads/writes, personal carry history and administrative configuration/security actions. The HQ Worker keeps the private bridge token server-side and exposes only sanitized web responses.
 
-## Requirements
+## Nexus products implemented in this repository
 
-- Node.js 20+
-- A Discord bot token for application `1546171480952283166`
+The canonical product catalog is `src/nexus/catalog.js`. It currently defines the following runtime surfaces:
+
+- Kingdom Core
+- Kingdom Platform
+- Kingdom Mobile
+- Kingdom Desktop Control Centre
+- Kingdom Network
+- Kingdom Cloud
+- Kingdom Identity
+- Kingdom Launcher
+- Kingdom Companion
+- Kingdom Live
+- Kingdom TV
+- Kingdom Creator Platform
+- Kingdom API
+- Kingdom SDK
+- Kingdom Studio
+- Kingdom Sentinel
+- Kingdom Vault
+- Kingdom Intelligence
+- Kingdom AI
+- Kingdom Nexus
+
+The catalog is the source of truth for product names and advertised capabilities. Website copy should be updated from that catalog rather than from old mock-dashboard text.
+
+## Storage and runtime
+
+The default runtime uses existing Kingdom Core JSON state plus local Vault snapshots. PostgreSQL and Redis adapters are optional; they are not required by the default configuration.
+
+Node.js **20+** is required.
 
 ## Install
 
@@ -177,43 +146,50 @@ npm install
 cp .env.example .env
 ```
 
-Edit `.env` and add your bot token. For immediate guild-scoped command deployment, set `GUILD_ID` to the Kingdom Carries server ID.
+Add the Discord bot token to `.env`. For immediate guild-scoped command deployment, set `GUILD_ID` to the intended guild ID.
 
-## Register commands
+Deploy the current slash-command registry:
 
 ```bash
 npm run deploy
 ```
 
-With `GUILD_ID` set, `/setup` and `/mod` are registered to that guild immediately. With it blank, they are registered globally.
-
-## Start
+Start the runtime:
 
 ```bash
 npm start
 ```
 
-Then, as a server administrator, run:
+## Validation
 
-```text
-/setup
-```
-
-## Updating an existing deployment
-
-On the server running Kingdom Core:
+Syntax/runtime checks:
 
 ```bash
-git pull
-npm install
 npm run check
-npm run deploy
-pm2 restart kingdom-core --update-env
-pm2 save
 ```
 
-After the restart, run `/setup` once in Discord. The unified setup performs the migration and category consolidation.
+Focused self-tests are also available:
 
-## Hosting
+```bash
+npm run selftest:setup3
+npm run selftest:uipgrade
+npm run selftest:carry-sessions
+npm run selftest:nexus
+npm run selftest:v4
+npm run selftest:v5
+npm run selftest:v10
+```
 
-Kingdom Core has no mandatory paid API or database dependency. It can run on an existing Linux/VPS host with JSON persistence, while PostgreSQL and Redis remain optional infrastructure upgrades.
+Production dependency audit:
+
+```bash
+npm run audit:prod
+```
+
+## Security notes
+
+- Keep `TOKEN`, Discord OAuth secrets, session secrets and private API tokens out of browser code and source control.
+- Nexus privileged writes require an authenticated/authorized session and CSRF validation.
+- The public HQ Worker must never forward its private Core API token to the browser.
+- `/setup3` and `/uipgrade` are administrator-only because they can change server structure or presentation content.
+- `/mod` additionally checks the relevant Discord moderation permission and bot role hierarchy before taking action.
