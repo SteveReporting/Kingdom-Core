@@ -125,22 +125,24 @@ for (const capability of ['runNexusMaintenance','refreshSystemReadiness','create
 for (const slug of NEXUS_PRODUCTS.map((product) => product.slug)) {
   if (!ops.includes(`${slug}: runtime(`)) failures.push(`Runtime readiness check missing for Kingdom system: ${slug}`);
 }
-for (const capability of ['discordOAuthConfigured','startDiscordOAuth','completeDiscordOAuth','publicSession','isOperatorSession','revalidateNexusSession','operatorForMember','HttpOnly','SameSite=Lax','SESSION_TTL_MS','SESSION_REVALIDATE_MS']) {
+for (const capability of ['discordOAuthConfigured','startDiscordOAuth','completeDiscordOAuth','publicSession','isOperatorSession','revalidateNexusSession','guildOwner','HttpOnly','SameSite=Lax','SESSION_TTL_MS','SESSION_REVALIDATE_MS']) {
   if (!auth.includes(capability)) failures.push(`Nexus Discord OAuth/session capability missing: ${capability}`);
 }
-if (!auth.includes('PermissionFlagsBits.Administrator') || !auth.includes('PermissionFlagsBits.ManageGuild')) failures.push('Discord OAuth operator authorization must be tied to Discord permissions.');
+if (!auth.includes('guild?.ownerId') || !auth.includes("session.operator = true") || !auth.includes("session.owner = true")) failures.push('Discord OAuth owner-only authorization is incomplete.');
+if (!auth.includes('Kingdom Nexus is restricted to the owner of the configured Kingdom Carries guild.')) failures.push('Owner-only OAuth denial response is missing.');
 if (!auth.includes('DISCORD_OAUTH_CLIENT_SECRET') || !auth.includes('KINGDOM_NEXUS_PUBLIC_URL')) failures.push('Discord OAuth environment contract is missing.');
 if (!auth.includes("scope: 'identify'")) failures.push('Discord OAuth should request only identify scope by default.');
-if (!auth.includes('wasOperator && !operator') || !auth.includes('session.csrfToken = token(24)')) failures.push('Privilege revocation must invalidate previously issued CSRF material.');
-if (!platform.includes('await revalidateNexusSession(req, guild)')) failures.push('Nexus API does not revalidate live Discord membership.');
-if (!platform.includes('event: auth') || !platform.includes('session-expired')) failures.push('Nexus live SSE stream does not fail closed when membership expires.');
+if (!auth.includes("SameSite=${sessionSameSite()}")) failures.push('Nexus session cookie SameSite policy is not applied through the central session policy.');
+if (!auth.includes("secureCookie() ? 'None' : 'Lax'")) failures.push('Nexus secure session cookie policy must support the production cross-origin control-plane shell.');
+if (!platform.includes('await revalidateNexusSession(req, guild)')) failures.push('Nexus API does not revalidate the owner session against the live Discord guild.');
+if (!platform.includes('event: auth') || !platform.includes('session-expired')) failures.push('Nexus live SSE stream does not fail closed when the owner session expires.');
 if (!platform.includes('KINGDOM_NEXUS_ADMIN_TOKEN')) failures.push('Nexus fallback admin token protection is missing.');
-if (!platform.includes('isOperatorSession(req)')) failures.push('Nexus admin API does not accept Discord operator sessions.');
+if (!platform.includes('isOperatorSession(req)')) failures.push('Nexus admin API does not accept the authorized owner session.');
 if (!platform.includes("KINGDOM_NEXUS_HOST ?? '127.0.0.1'")) failures.push('Nexus must bind to localhost by default.');
 if (!platform.includes('text/event-stream')) failures.push('Nexus live SSE stream is missing.');
 if (!platform.includes('startMaintenanceLoop')) failures.push('Nexus background maintenance loop is missing.');
 if (!index.includes('startNexusPlatform')) failures.push('Kingdom Core does not start Kingdom Nexus.');
-if (!web.includes('operatorState') || !web.includes('adminBtn') || !web.includes('discordBtn')) failures.push('Nexus operator/Discord controls are missing.');
+if (!web.includes('operatorState') || !web.includes('adminBtn') || !web.includes('discordBtn')) failures.push('Nexus owner/operator Discord controls are missing.');
 if (!app.includes('beforeinstallprompt')) failures.push('Nexus PWA install flow is missing.');
 if (!app.includes('sessionStorage')) failures.push('Legacy Nexus fallback admin token must remain session-scoped in the legacy browser surface.');
 if (!app.includes('EventSource')) failures.push('Nexus browser live stream client is missing.');
@@ -172,4 +174,4 @@ if (failures.length) {
   for (const failure of failures) console.error(`- ${failure}`);
   process.exit(1);
 }
-console.log('Kingdom suite self-test passed: all 20 systems are registered with strict input validation, runtime readiness checks, continuously revalidated Discord membership/privileges, audited operator writes, complete managed-record lifecycle, live SSE/TV, session-aware SDK, verified Vault backup/restore, Intelligence trends and low-memory maintenance verified.');
+console.log('Kingdom suite self-test passed: all 20 systems are registered with strict input validation, runtime readiness checks, continuously revalidated owner-only Discord access, audited privileged writes, complete managed-record lifecycle, live SSE/TV, session-aware SDK, verified Vault backup/restore, Intelligence trends and low-memory maintenance verified.');
