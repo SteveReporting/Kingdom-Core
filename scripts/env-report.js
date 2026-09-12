@@ -90,22 +90,22 @@ const onlyCurrent = current.keys.filter((key) => !exampleSet.has(key)).sort();
 const missingDocumented = example.keys.filter((key) => !currentSet.has(key)).sort();
 const missingCode = codeKeys.filter((key) => !currentSet.has(key));
 const codeNotDocumented = codeKeys.filter((key) => !exampleSet.has(key));
-const documentedNotUsedDirectly = example.keys.filter((key) => !codeSet.has(key)).sort();
+const documentedNotStaticallyDetected = example.keys.filter((key) => !codeSet.has(key)).sort();
 
 console.log('Kingdom Core environment inventory');
 console.log('No environment values are printed by this report.');
 console.log(`Current .env keys: ${current.keys.length}`);
 console.log(`Documented .env.example keys: ${example.keys.length}`);
-console.log(`Direct process.env references found in code: ${codeKeys.length}`);
+console.log(`Statically detected process.env references in code: ${codeKeys.length}`);
 
 section('CURRENT KEY NAMES (safe to paste)', current.keys);
 section('EXISTING KEYS NOT IN .env.example (preserve these until reviewed)', onlyCurrent);
 section('DOCUMENTED KEYS MISSING FROM CURRENT .env', missingDocumented);
-section('CODE-REFERENCED KEYS MISSING FROM CURRENT .env', missingCode);
-section('CODE-REFERENCED KEYS NOT DOCUMENTED IN .env.example', codeNotDocumented);
+section('STATICALLY CODE-REFERENCED KEYS MISSING FROM CURRENT .env', missingCode);
+section('STATICALLY CODE-REFERENCED KEYS NOT DOCUMENTED IN .env.example', codeNotDocumented);
 section('CURRENT KEYS WITH BLANK VALUES', blank);
 section('DUPLICATE KEYS IN CURRENT .env', [...current.duplicates].sort());
-section('DOCUMENTED KEYS NOT FOUND AS DIRECT process.env REFERENCES', documentedNotUsedDirectly);
+section('DOCUMENTED KEYS NOT STATICALLY DETECTED (may be read dynamically; do NOT treat as unused)', documentedNotStaticallyDetected);
 
 if (current.duplicates.size) {
   console.log('\nWARNING: duplicate keys can make configuration ambiguous. Do not delete either copy until the intended value is confirmed.');
