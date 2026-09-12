@@ -15,7 +15,7 @@ The install URL uses the same permission integer as the public Kingdom Core webs
 
 ## Slash commands deployed by `npm run deploy`
 
-`src/deploy-commands.js` currently registers exactly four top-level commands:
+`src/deploy-commands.js` currently registers exactly five top-level commands:
 
 ### `/setup3`
 
@@ -64,6 +64,20 @@ Kingdom Market Intelligence (KMI) item valuation and fair-trade checking.
 - POT, upgrade and base values can be supplied to improve the estimate.
 - If KMI does not have enough reliable observations, the command reports that instead of inventing a price.
 
+### `/dq`
+
+Unified Dungeon Quest systems command for the Kingdom DQ intelligence layer.
+
+It exposes:
+
+- **Genome** — searchable Dungeon Quest entities, observations, strategies and recorded runs.
+- **Digital Twin** — empirical run simulation that improves as real run evidence accumulates.
+- **Oracle** — decision ranking for progression, speed, gold, XP and safety objectives.
+- **Sentinel** — anomaly detection over recorded Dungeon Quest evidence.
+- **DQ Asset Bank** — verified deposits, internal balances, transfers, withdrawal requests and reserve/liability health.
+
+Important: Genome/Twin/Oracle/Sentinel begin with truthful empty state for a new guild. They learn from real `/dq record-run` input and KMI observations rather than fabricated seed statistics. Asset Bank credits are created only after an operator verifies the physical in-game asset was actually received.
+
 ## Kingdom Nexus
 
 The native Nexus server is implemented in `src/nexus/platform.js` and the browser application lives in `web/nexus/`.
@@ -81,11 +95,13 @@ The native Nexus server is implemented in `src/nexus/platform.js` and the browse
 
 Authenticated sessions are revalidated before protected Nexus API access.
 
+The current production authentication policy restricts Nexus Discord sessions to the **owner of the configured Kingdom Carries guild**. This keeps the control plane private while the member-facing HQ remains available to normal guild users.
+
 ### Authenticated read surfaces
 
 The current Nexus exposes authenticated reads for products, status, live operations, intelligence, Sentinel, network summary, launcher, Companion, creators, the OpenAPI document and the JavaScript SDK. Live operations also expose a Server-Sent Events stream at `/api/live/stream`.
 
-Operator-only reads include identity administration, applications, Vault, Studio layouts and audit records. Operator mutations use CSRF checks plus the Nexus authorization layer.
+Privileged reads include identity administration, applications, Vault, Studio layouts and audit records. Privileged mutations use CSRF checks plus the Nexus authorization layer.
 
 The production public URL configured by `.env.example` is:
 
@@ -137,6 +153,8 @@ The catalog is the source of truth for product names and advertised capabilities
 
 The default runtime uses existing Kingdom Core JSON state plus local Vault snapshots. PostgreSQL and Redis adapters are optional; they are not required by the default configuration.
 
+Dungeon Quest state is isolated per guild under `DQ_DATA_DIR` (default `data/dq`). New guild state is intentionally empty until real evidence is recorded.
+
 Node.js **20+** is required.
 
 ## Install
@@ -175,6 +193,7 @@ npm run selftest:setup3
 npm run selftest:uipgrade
 npm run selftest:carry-sessions
 npm run selftest:nexus
+npm run selftest:dq
 npm run selftest:v4
 npm run selftest:v5
 npm run selftest:v10
@@ -193,3 +212,4 @@ npm run audit:prod
 - The public HQ Worker must never forward its private Core API token to the browser.
 - `/setup3` and `/uipgrade` are administrator-only because they can change server structure or presentation content.
 - `/mod` additionally checks the relevant Discord moderation permission and bot role hierarchy before taking action.
+- DQ Asset Bank staff actions should only be approved after physical in-game settlement has been verified.
