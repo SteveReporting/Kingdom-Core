@@ -9,6 +9,10 @@ import {
 import { BRAND, STAFF_KEYS } from '../config/blueprint.js';
 import { readGuildState, writeGuildState } from '../storage/store.js';
 
+const STATS_RENAME_COOLDOWN_MS = 10 * 60_000;
+const STATS_QUEUE_DELAY_MS = 1_500;
+const statsRenameState = new Map();
+
 function readOnlyOverwrites(guild, state) {
   const rows = [{
     id: guild.roles.everyone.id,
@@ -127,10 +131,59 @@ function countSnapshot(guild) {
   };
 }
 
+function scheduleStatsRename(guild, targets) {
+  let slot = statsRenameState.get(guild.id);
+  if (!slot) {
+    slot = { desired: new Map(), timer: null, running: false, lastRunAt: 0 };
+    statsRenameState.set(guild.id, slot);
+  }
+
+  for (const [id, name] of targets) {
+    if (id && name) slot.desired.set(id, name);
+  }
+
+  if (!slot.running && !slot.timer && slot.desired.size) {
+    const elapsed = Date.now() - slot.lastRunAt;
+    const cooldownRemaining = Math.max(0, STATS_RENAME_COOLDOWN_MS - elapsed);
+    const delay = Math.max(STATS_QUEUE_DELAY_MS, cooldownRemaining);
+    slot.timer = setTimeout(() => {
+      flushStatsRenames(guild, slot).catch((error) => {
+        console.error('[ServerStats] background rename flush failed:', error);
+      });
+    }, delay);
+    slot.timer.unref?.();
+  }
+
+  return slot.desired.size;
+}
+
+async function flushStatsRenames(guild, slot) {
+  if (slot.running) return;
+  slot.timer = null;
+  slot.running = true;
+  slot.lastRunAt = Date.now();
+  const batch = [...slot.desired.entries()];
+  slot.desired.clear();
+
+  try {
+    for (const [id, name] of batch) {
+      const channel = guild.channels.cache.get(id);
+      if (channel?.type === ChannelType.GuildText && channel.name !== name) {
+        await channel.setName(name, 'Kingdom Core live server stats').catch((error) => {
+          console.warn(`[ServerStats] failed to rename ${id}: ${String(error?.message ?? error)}`);
+        });
+      }
+    }
+  } finally {
+    slot.running = false;
+    if (slot.desired.size) scheduleStatsRename(guild, []);
+  }
+}
+
 export async function updateServerStats(guild) {
   const state = await readGuildState(guild.id);
   const ids = state.setup?.statsChannels;
-  if (!ids) return { updated: false, exact: false };
+  if (!ids) return { updated: false, exact: false, queued: 0 };
 
   const snapshot = countSnapshot(guild);
   const targets = [
@@ -138,13 +191,8 @@ export async function updateServerStats(guild) {
     [ids.members, `members-${snapshot.humans}`],
     [ids.bots, `bots-${snapshot.bots}`]
   ];
-  for (const [id, name] of targets) {
-    const channel = guild.channels.cache.get(id);
-    if (channel?.type === ChannelType.GuildText && channel.name !== name) {
-      await channel.setName(name, 'Kingdom Core live server stats').catch(() => null);
-    }
-  }
-  return { updated: true, exact: snapshot.exact, ...snapshot };
+  const queued = scheduleStatsRename(guild, targets);
+  return { updated: true, exact: snapshot.exact, queued, ...snapshot };
 }
 
 export async function installStatsAndVerification(guild) {
