@@ -28,6 +28,8 @@ function ensureProfile(state, userId) {
     titles: []
   };
   state.identities[userId].stats ??= {};
+  state.identities[userId].achievements ??= [];
+  state.identities[userId].titles ??= [];
   return state.identities[userId];
 }
 
@@ -45,6 +47,41 @@ function ensureCarrier(state, userId) {
     workload: 0
   };
   return state.carrierOps.profiles[userId];
+}
+
+function uniquePush(list, value, max = 100) {
+  if (!value || list.includes(value)) return false;
+  list.push(value);
+  if (list.length > max) list.splice(0, list.length - max);
+  return true;
+}
+
+function awardProgressAchievements(profile) {
+  const received = profile.stats?.carriesReceived ?? 0;
+  const completed = profile.stats?.carriesCompleted ?? 0;
+  const quests = profile.stats?.quests ?? 0;
+
+  if (received >= 1) uniquePush(profile.achievements, 'First Carry');
+  if (received >= 10) uniquePush(profile.achievements, 'Realm Regular');
+  if (received >= 50) uniquePush(profile.achievements, 'Veteran Adventurer');
+  if (completed >= 1) uniquePush(profile.achievements, 'First Service');
+  if (completed >= 50) uniquePush(profile.achievements, 'Kingdom Helper');
+  if (completed >= 250) uniquePush(profile.achievements, 'Royal Service');
+  if (quests >= 1) uniquePush(profile.achievements, 'Quest Initiate');
+  if (quests >= 25) uniquePush(profile.achievements, 'Quest Veteran');
+
+  if (received >= 50) uniquePush(profile.titles, 'Veteran of the Realm', 50);
+  if (completed >= 250) uniquePush(profile.titles, 'Servant of the Realm', 50);
+  if (quests >= 25) uniquePush(profile.titles, 'Royal Questmaster', 50);
+}
+
+function awardCarrierAchievements(profile, carrier) {
+  if (!carrier) return;
+  if ((carrier.completedRuns ?? 0) >= 1) uniquePush(profile.achievements, 'Knight First Mission');
+  if ((carrier.playersHelped ?? 0) >= 50) uniquePush(profile.achievements, '50 Players Helped');
+  if ((carrier.playersHelped ?? 0) >= 100) uniquePush(profile.achievements, '100 Players Helped');
+  if ((carrier.serviceMinutes ?? 0) >= 600) uniquePush(profile.achievements, '10 Hours of Verified Service');
+  if ((carrier.playersHelped ?? 0) >= 100) uniquePush(profile.titles, 'Guardian of the Realm', 50);
 }
 
 function pushEvent(state, type, data = {}) {
@@ -67,6 +104,79 @@ function updateKingdomStage(state) {
   }
   state.kingdom.stage = stage;
   state.kingdom.level = level;
+}
+
+function ensureQuestState(state) {
+  state.questsV4 ??= { daily: [], weekly: [], community: [], completed: {} };
+  state.questsV4.daily ??= [];
+  state.questsV4.weekly ??= [];
+  state.questsV4.community ??= [];
+  state.questsV4.completed ??= {};
+  state.questsV4.progress ??= {};
+  return state.questsV4;
+}
+
+function questCompleteRecord(state, userId, quest) {
+  const quests = ensureQuestState(state);
+  quests.completed[userId] ??= {};
+  return quests.completed[userId][quest.id] ?? null;
+}
+
+function incrementQuest(state, userId, quest, amount = 1) {
+  if (!quest?.id || !userId || amount <= 0) return false;
+  const quests = ensureQuestState(state);
+  quests.progress[userId] ??= {};
+  if (questCompleteRecord(state, userId, quest)) return false;
+
+  const next = Math.min(Math.max(0, Number(quest.target) || 0), (Number(quests.progress[userId][quest.id]) || 0) + amount);
+  quests.progress[userId][quest.id] = next;
+  if (!quest.target || next < quest.target) return false;
+
+  const completedAt = new Date().toISOString();
+  quests.completed[userId][quest.id] = { completedAt, rewardXp: quest.rewardXp ?? 0, name: quest.name };
+  const completedEntries = Object.entries(quests.completed[userId]);
+  if (completedEntries.length > 100) {
+    completedEntries
+      .sort((a, b) => new Date(a[1]?.completedAt ?? 0) - new Date(b[1]?.completedAt ?? 0))
+      .slice(0, completedEntries.length - 100)
+      .forEach(([id]) => delete quests.completed[userId][id]);
+  }
+
+  const profile = ensureProfile(state, userId);
+  profile.kingdomXp = (profile.kingdomXp ?? 0) + (Number(quest.rewardXp) || 0);
+  profile.stats.quests = (profile.stats.quests ?? 0) + 1;
+  awardProgressAchievements(profile);
+  pushEvent(state, 'quest.completed', { userId, questId: quest.id, rewardXp: quest.rewardXp ?? 0 });
+  return true;
+}
+
+function progressCarryQuests(state, ticket, members) {
+  const quests = ensureQuestState(state);
+  const dailyCarry = quests.daily.find((quest) => quest.kind === 'carry-participation' || /Answer the Call/i.test(quest.name ?? ''));
+  const dailyAid = quests.daily.find((quest) => quest.kind === 'realm-aid' || /Aid the Realm/i.test(quest.name ?? ''));
+  const weeklyKnight = quests.weekly.find((quest) => quest.kind === 'carrier-service' || /Knight of the Week/i.test(quest.name ?? ''));
+
+  for (const userId of members) {
+    if (dailyCarry) incrementQuest(state, userId, dailyCarry, 1);
+    if (dailyAid) incrementQuest(state, userId, dailyAid, 1);
+  }
+  if (ticket.carrierId) {
+    if (dailyCarry) incrementQuest(state, ticket.carrierId, dailyCarry, 1);
+    if (dailyAid) incrementQuest(state, ticket.carrierId, dailyAid, 1);
+    if (weeklyKnight) incrementQuest(state, ticket.carrierId, weeklyKnight, members.length);
+  }
+
+  for (const quest of quests.community) {
+    if (quest.completedAt) continue;
+    if (quest.dungeon && quest.dungeon !== ticket.dungeon) continue;
+    quest.progress = Math.min(Number(quest.target) || 0, (Number(quest.progress) || 0) + members.length);
+    if (quest.target && quest.progress >= quest.target) {
+      quest.completedAt = new Date().toISOString();
+      state.kingdom.xp = (state.kingdom.xp ?? 0) + (Number(quest.rewardXp) || 0);
+      pushEvent(state, 'quest.community.completed', { questId: quest.id, rewardXp: quest.rewardXp ?? 0 });
+      updateKingdomStage(state);
+    }
+  }
 }
 
 export function recordCarryTransition(state, ticket, action, actorId) {
@@ -101,6 +211,7 @@ export function recordCarryTransition(state, ticket, action, actorId) {
       const profile = ensureProfile(state, userId);
       profile.stats.carriesReceived = (profile.stats.carriesReceived ?? 0) + 1;
       profile.kingdomXp = (profile.kingdomXp ?? 0) + 10;
+      awardProgressAchievements(profile);
     }
     if (ticket.carrierId) {
       const carrier = ensureCarrier(state, ticket.carrierId);
@@ -111,8 +222,11 @@ export function recordCarryTransition(state, ticket, action, actorId) {
       const carrierIdentity = ensureProfile(state, ticket.carrierId);
       carrierIdentity.stats.carriesCompleted = (carrierIdentity.stats.carriesCompleted ?? 0) + members.length;
       carrierIdentity.kingdomXp = (carrierIdentity.kingdomXp ?? 0) + 20 + members.length * 2;
+      awardProgressAchievements(carrierIdentity);
+      awardCarrierAchievements(carrierIdentity, carrier);
     }
     state.kingdom.xp = (state.kingdom.xp ?? 0) + 25 + members.length * 10;
+    progressCarryQuests(state, ticket, members);
     updateKingdomStage(state);
   }
 }
@@ -164,22 +278,51 @@ function updateFunnels(state) {
   };
 }
 
+function weekKey(date = new Date()) {
+  const current = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+  const day = current.getUTCDay() || 7;
+  current.setUTCDate(current.getUTCDate() - day + 1);
+  return current.toISOString().slice(0, 10);
+}
+
 function generateQuests(state) {
-  state.questsV4 ??= { daily: [], weekly: [], community: [], completed: {} };
+  const quests = ensureQuestState(state);
   const today = new Date().toISOString().slice(0, 10);
-  if (state.questsV4.generatedAt === today) return;
-  const hottest = Object.entries(state.analyticsV4?.demand ?? {}).sort((a, b) => (b[1].requests ?? 0) - (a[1].requests ?? 0))[0]?.[0] ?? 'any dungeon';
-  state.questsV4.daily = [
-    { id: `daily-carry-${today}`, name: 'Answer the Call', description: 'Complete or receive 3 successful carries.', target: 3, rewardXp: 75 },
-    { id: `daily-help-${today}`, name: 'Aid the Realm', description: 'Help another member or participate in a Kingdom activity.', target: 1, rewardXp: 40 }
-  ];
-  state.questsV4.weekly = [
-    { id: `weekly-${today}`, name: 'Knight of the Week', description: 'Contribute to 25 successful player carries.', target: 25, rewardXp: 500 }
-  ];
-  state.questsV4.community = [
-    { id: `bounty-${today}`, name: "King's Bounty", description: `Prioritise **${hottest}** while demand is elevated.`, target: 100, rewardXp: 1500 }
-  ];
-  state.questsV4.generatedAt = today;
+  const week = weekKey();
+  const hottest = Object.entries(state.analyticsV4?.demand ?? {}).sort((a, b) => (b[1].requests ?? 0) - (a[1].requests ?? 0))[0]?.[0] ?? null;
+
+  if (quests.dailyGeneratedAt !== today) {
+    quests.daily = [
+      { id: `daily-carry-${today}`, kind: 'carry-participation', name: 'Answer the Call', description: 'Complete or receive 3 successful carries.', target: 3, rewardXp: 75 },
+      { id: `daily-help-${today}`, kind: 'realm-aid', name: 'Aid the Realm', description: 'Help another member or participate in a Kingdom activity.', target: 1, rewardXp: 40 }
+    ];
+    quests.dailyGeneratedAt = today;
+  }
+
+  if (quests.weeklyGeneratedAt !== week) {
+    quests.weekly = [
+      { id: `weekly-knight-${week}`, kind: 'carrier-service', name: 'Knight of the Week', description: 'Contribute to 25 successful player carries.', target: 25, rewardXp: 500 }
+    ];
+    quests.weeklyGeneratedAt = week;
+  }
+
+  if (quests.communityGeneratedAt !== today) {
+    quests.community = [
+      {
+        id: `bounty-${today}`,
+        kind: 'community-bounty',
+        name: "King's Bounty",
+        description: hottest ? `Prioritise **${hottest}** while demand is elevated.` : 'Complete carries together to answer the Realm\'s demand.',
+        dungeon: hottest,
+        target: 100,
+        rewardXp: 1500,
+        progress: 0,
+        completedAt: null
+      }
+    ];
+    quests.communityGeneratedAt = today;
+  }
+  quests.generatedAt = today;
 }
 
 export async function trackPlatformEvent(guildId, type, data = {}) {
@@ -193,10 +336,11 @@ export async function runV4Maintenance(guild) {
   const state = await readGuildState(guild.id);
   if (!state.platform?.schemaVersion) return false;
   await mutateGuildState(guild.id, async (fresh) => {
+    fresh.analyticsV4 ??= { events: [], demand: {}, forecasts: {}, funnels: {} };
+    generateQuests(fresh);
     backfillCarryLifecycle(fresh);
     rebuildDemand(fresh);
     updateFunnels(fresh);
-    generateQuests(fresh);
     fresh.systemV4 ??= {};
     fresh.systemV4.lastMaintenanceAt = new Date().toISOString();
     fresh.systemV4.health = {
