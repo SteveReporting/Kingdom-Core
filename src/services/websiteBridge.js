@@ -273,23 +273,9 @@ export async function updateWebsiteMemberProfile(guild, userId, patch = {}) {
   const displayName = cleanString(patch.displayName, 32);
   const robloxUsername = cleanString(patch.robloxUsername, 20);
   const region = cleanString(patch.region, 64);
-  const nicknameWasProvided = Object.prototype.hasOwnProperty.call(patch, 'discordNickname');
-  const discordNickname = cleanString(patch.discordNickname, 32);
 
   if (robloxUsername && !/^[A-Za-z0-9_]{3,20}$/.test(robloxUsername)) {
     throw apiError('invalid_roblox_username', 'Roblox username must be 3-20 letters, numbers or underscores.');
-  }
-
-  if (nicknameWasProvided && discordNickname !== (member.nickname ?? '')) {
-    try {
-      await member.setNickname(discordNickname || null, 'Member updated nickname from Kingdom Carries website');
-    } catch {
-      throw apiError(
-        'nickname_update_failed',
-        'I could not change your Discord server nickname. Check the bot Manage Nicknames permission and role order.',
-        409
-      );
-    }
   }
 
   await mutateGuildState(guild.id, async (state) => {
