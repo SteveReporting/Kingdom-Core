@@ -3,9 +3,12 @@ import path from 'node:path';
 
 const DATA_DIR = path.resolve('data');
 const guildLocks = new Map();
+const DIRECTORY_MODE = 0o700;
+const FILE_MODE = 0o600;
 
 async function ensureDir() {
-  await fs.mkdir(DATA_DIR, { recursive: true });
+  await fs.mkdir(DATA_DIR, { recursive: true, mode: DIRECTORY_MODE });
+  await fs.chmod(DATA_DIR, DIRECTORY_MODE).catch(() => null);
 }
 
 function guildFile(guildId) {
@@ -14,8 +17,10 @@ function guildFile(guildId) {
 
 export async function readGuildState(guildId) {
   await ensureDir();
+  const file = guildFile(guildId);
   try {
-    const raw = await fs.readFile(guildFile(guildId), 'utf8');
+    await fs.chmod(file, FILE_MODE).catch(() => null);
+    const raw = await fs.readFile(file, 'utf8');
     return JSON.parse(raw);
   } catch (error) {
     if (error.code !== 'ENOENT') throw error;
@@ -33,8 +38,10 @@ export async function writeGuildState(guildId, state) {
   await ensureDir();
   const target = guildFile(guildId);
   const temp = `${target}.tmp`;
-  await fs.writeFile(temp, JSON.stringify(state, null, 2), 'utf8');
+  await fs.writeFile(temp, JSON.stringify(state, null, 2), { encoding: 'utf8', mode: FILE_MODE });
+  await fs.chmod(temp, FILE_MODE).catch(() => null);
   await fs.rename(temp, target);
+  await fs.chmod(target, FILE_MODE).catch(() => null);
 }
 
 export async function mutateGuildState(guildId, mutator) {
