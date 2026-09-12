@@ -161,13 +161,14 @@ async function handler(client, req, res) {
   const guildId = url.searchParams.get('guild') || client.guilds.cache.first()?.id;
   const guild = client.guilds.cache.get(guildId) ?? client.guilds.cache.first();
 
+  if (url.pathname === '/health') {
+    return json(res, 200, { ok: true, ping: client.ws.ping, uptimeSeconds: Math.round(process.uptime()), memoryMb: Math.round(process.memoryUsage().rss / 1024 / 1024) });
+  }
+  if (!authorised(req)) return json(res, 401, { error: 'unauthorised' });
   if (url.pathname === '/') {
     const body = dashboardHtml();
     res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'content-length': Buffer.byteLength(body), 'cache-control': 'no-store' });
     return res.end(body);
-  }
-  if (url.pathname === '/health') {
-    return json(res, 200, { ok: true, ping: client.ws.ping, uptimeSeconds: Math.round(process.uptime()), memoryMb: Math.round(process.memoryUsage().rss / 1024 / 1024) });
   }
   if (url.pathname === '/api/overview') {
     const data = await snapshot(client, guildId);
@@ -264,7 +265,11 @@ export async function startPlatformApi(client) {
     console.error('Platform API error:', error);
     json(res, Number(error?.status) || 500, { error: error?.message || 'internal_error' });
   }));
-  wss = new WebSocketServer({ server, path: '/ws' });
+  wss = new WebSocketServer({
+    server,
+    path: '/ws',
+    verifyClient: ({ req }) => authorised(req)
+  });
   wss.on('connection', async (socket, request) => {
     const url = new URL(request.url, 'http://localhost');
     const guildId = url.searchParams.get('guild') || client.guilds.cache.first()?.id;
