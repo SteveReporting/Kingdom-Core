@@ -1,7 +1,9 @@
-const DEFAULT_BASE_URL = 'http://127.0.0.1:8787';
-
 function baseUrl() {
-  return String(process.env.KMI_API_URL || DEFAULT_BASE_URL).replace(/\/+$/, '');
+  const configured = String(process.env.KMI_API_URL || '').trim().replace(/\/+$/, '');
+  if (!configured) {
+    throw new Error('Kingdom Market Intelligence is not configured. Set KMI_API_URL to the dedicated KMI service endpoint.');
+  }
+  return configured;
 }
 
 function headers(jsonBody = false) {
