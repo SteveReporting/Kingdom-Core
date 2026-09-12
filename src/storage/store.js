@@ -1,6 +1,10 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
+// Fail closed for every file created by the Kingdom Core process, including Vault backups.
+// Explicit state writes below are additionally forced to 0600.
+process.umask(0o077);
+
 const DATA_DIR = path.resolve('data');
 const guildLocks = new Map();
 const DIRECTORY_MODE = 0o700;
