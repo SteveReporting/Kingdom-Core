@@ -104,6 +104,20 @@ function ticketEmbed(ticket) {
     .setTimestamp();
 }
 
+function publicRobloxConnection(website = {}) {
+  const roblox = website.roblox;
+  if (!roblox?.userId || !roblox?.username) return null;
+  return {
+    userId: cleanString(roblox.userId, 32),
+    username: cleanString(roblox.username, 64),
+    displayName: cleanString(roblox.displayName, 80),
+    avatarUrl: cleanString(roblox.avatarUrl, 500) || null,
+    profileUrl: cleanString(roblox.profileUrl, 500) || null,
+    verifiedAt: cleanString(roblox.verifiedAt, 64) || null,
+    provider: 'roblox_oauth'
+  };
+}
+
 export async function createWebsiteCarryTicket(guild, input = {}) {
   const userId = cleanString(input.userId, 32);
   const dungeon = cleanString(input.dungeon, 64);
@@ -112,7 +126,6 @@ export async function createWebsiteCarryTicket(guild, input = {}) {
   const notes = cleanString(input.notes, 180);
   const region = cleanString(input.region, 64);
   const partyRequirements = cleanString(input.partyRequirements, 120);
-  const robloxUsername = cleanString(input.robloxUsername, 20);
   const numericLevel = Number(input.level);
   const level = Number.isFinite(numericLevel) && numericLevel > 0 && numericLevel < 10000
     ? Math.floor(numericLevel)
@@ -122,14 +135,16 @@ export async function createWebsiteCarryTicket(guild, input = {}) {
   if (!DUNGEONS.has(dungeon)) throw apiError('invalid_dungeon', 'Choose a supported dungeon.');
   if (!DIFFICULTIES.has(difficulty)) throw apiError('invalid_difficulty', 'Choose a supported difficulty.');
   if (!MODES.has(mode)) throw apiError('invalid_mode', 'Choose Normal or Hardcore mode.');
-  if (robloxUsername && !/^[A-Za-z0-9_]{3,20}$/.test(robloxUsername)) {
-    throw apiError('invalid_roblox_username', 'Roblox username must be 3-20 letters, numbers or underscores.');
-  }
 
   const member = await guild.members.fetch(userId).catch(() => null);
   if (!member) throw apiError('not_guild_member', 'Join the Kingdom Carries Discord before requesting a carry.', 403);
 
   const state = await readGuildState(guild.id);
+  const roblox = publicRobloxConnection(state.identities?.[userId]?.website ?? {});
+  if (!roblox) {
+    throw apiError('roblox_not_connected', 'Connect and verify your Roblox account before requesting a carry.', 409);
+  }
+
   const existing = Object.values(state.carryTickets ?? {}).find(
     (ticket) => ticket.userId === userId && ACTIVE.has(ticket.status)
   );
@@ -165,7 +180,8 @@ export async function createWebsiteCarryTicket(guild, input = {}) {
     mode,
     notes,
     level,
-    robloxUsername: robloxUsername || null,
+    robloxUsername: roblox.username,
+    robloxUserId: roblox.userId,
     region: region || null,
     partyRequirements: partyRequirements || null,
     source: 'website',
@@ -200,7 +216,6 @@ export async function createWebsiteCarryTicket(guild, input = {}) {
     const identity = fresh.identities[userId] ?? { userId };
     identity.userId = userId;
     identity.website ??= {};
-    if (robloxUsername) identity.website.robloxUsername = robloxUsername;
     if (region) identity.website.region = region;
     identity.website.lastSeenAt = new Date().toISOString();
     fresh.identities[userId] = identity;
@@ -231,6 +246,7 @@ export async function getWebsiteMemberProfile(guild, userId) {
   const state = await readGuildState(guild.id);
   const identity = state.identities?.[userId] ?? {};
   const website = identity.website ?? {};
+  const roblox = publicRobloxConnection(website);
 
   return {
     discord: {
@@ -242,8 +258,11 @@ export async function getWebsiteMemberProfile(guild, userId) {
     },
     profile: {
       displayName: cleanString(website.displayName, 32) || member.displayName,
-      robloxUsername: cleanString(website.robloxUsername, 20),
+      robloxUsername: roblox?.username ?? '',
       region: cleanString(website.region, 64)
+    },
+    connections: {
+      roblox
     },
     notifications: {
       carryStatus: website.notifications?.carryStatus ?? true,
@@ -271,11 +290,25 @@ export async function updateWebsiteMemberProfile(guild, userId, patch = {}) {
   if (!member) throw apiError('not_guild_member', 'This Discord account is not in the Kingdom Carries server.', 403);
 
   const displayName = cleanString(patch.displayName, 32);
-  const robloxUsername = cleanString(patch.robloxUsername, 20);
   const region = cleanString(patch.region, 64);
+  const oauth = patch.robloxOAuth && typeof patch.robloxOAuth === 'object' ? patch.robloxOAuth : null;
 
-  if (robloxUsername && !/^[A-Za-z0-9_]{3,20}$/.test(robloxUsername)) {
-    throw apiError('invalid_roblox_username', 'Roblox username must be 3-20 letters, numbers or underscores.');
+  let verifiedRoblox = null;
+  if (oauth) {
+    const robloxUserId = cleanString(oauth.userId, 32);
+    const username = cleanString(oauth.username, 64);
+    if (!/^\d+$/.test(robloxUserId) || !username) {
+      throw apiError('invalid_roblox_identity', 'Roblox OAuth returned an invalid identity.');
+    }
+    verifiedRoblox = {
+      userId: robloxUserId,
+      username,
+      displayName: cleanString(oauth.displayName, 80) || username,
+      avatarUrl: cleanString(oauth.avatarUrl, 500) || null,
+      profileUrl: cleanString(oauth.profileUrl, 500) || null,
+      verifiedAt: new Date().toISOString(),
+      provider: 'roblox_oauth'
+    };
   }
 
   await mutateGuildState(guild.id, async (state) => {
@@ -283,9 +316,25 @@ export async function updateWebsiteMemberProfile(guild, userId, patch = {}) {
     const identity = state.identities[userId] ?? { userId };
     identity.userId = userId;
     identity.website ??= {};
-    identity.website.displayName = displayName;
-    identity.website.robloxUsername = robloxUsername;
-    identity.website.region = region;
+
+    if (verifiedRoblox) {
+      const duplicate = Object.entries(state.identities).find(([otherUserId, otherIdentity]) =>
+        otherUserId !== userId && String(otherIdentity?.website?.roblox?.userId ?? '') === verifiedRoblox.userId
+      );
+      if (duplicate) {
+        throw apiError('roblox_already_linked', 'That Roblox account is already linked to another Discord account.', 409);
+      }
+      identity.website.roblox = verifiedRoblox;
+      identity.website.robloxUsername = verifiedRoblox.username;
+    }
+
+    if (patch.disconnectRoblox === true) {
+      delete identity.website.roblox;
+      delete identity.website.robloxUsername;
+    }
+
+    if (Object.hasOwn(patch, 'displayName')) identity.website.displayName = displayName;
+    if (Object.hasOwn(patch, 'region')) identity.website.region = region;
     identity.website.notifications ??= {};
     for (const key of NOTIFICATION_KEYS) {
       if (typeof patch.notifications?.[key] === 'boolean') {
