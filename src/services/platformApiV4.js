@@ -7,6 +7,21 @@ import {
   normaliseWebsiteBridgeError,
   updateWebsiteMemberProfile
 } from './websiteBridge.js';
+import {
+  createWebsiteMarketListing,
+  getMemberPortal,
+  getPublicApplications,
+  getPublicCarriers,
+  getPublicEvent,
+  getPublicEvents,
+  getPublicQuestBoard,
+  getPublicSystems,
+  getPublicTreasury,
+  getStaffPortal,
+  registerWebsiteReferral,
+  setWebsiteEventRsvp,
+  submitWebsiteTreasuryRequest
+} from './webPortalV4.js';
 
 let server = null;
 let wss = null;
@@ -131,6 +146,7 @@ async function snapshot(client, guildId) {
     },
     system: {
       schemaVersion: state.platform?.schemaVersion ?? null,
+      release: state.platform?.release ?? null,
       ping: client.ws.ping,
       uptimeSeconds: Math.round(process.uptime()),
       memoryMb: Math.round(process.memoryUsage().rss / 1024 / 1024)
@@ -156,6 +172,21 @@ fetch('/api/overview'+(guild?'?guild='+guild:'')).then(r=>r.json()).then(render)
 </script></body></html>`;
 }
 
+function portalError(res, error) {
+  const normalised = normaliseWebsiteBridgeError(error);
+  return json(res, normalised.status, normalised.body);
+}
+
+function eventIdFromPath(pathname) {
+  const match = pathname.match(/^\/api\/events\/([^/]+)$/);
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
+function eventRsvpIdFromPath(pathname) {
+  const match = pathname.match(/^\/api\/events\/([^/]+)\/rsvp$/);
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
 async function handler(client, req, res) {
   const url = new URL(req.url, 'http://localhost');
   const guildId = url.searchParams.get('guild') || client.guilds.cache.first()?.id;
@@ -170,14 +201,13 @@ async function handler(client, req, res) {
     res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'content-length': Buffer.byteLength(body), 'cache-control': 'no-store' });
     return res.end(body);
   }
-  if (url.pathname === '/api/overview') {
+  if (url.pathname === '/api/overview' && req.method === 'GET') {
     const data = await snapshot(client, guildId);
     return data ? json(res, 200, data) : json(res, 404, { error: 'guild_not_found' });
   }
   if (!guild) return json(res, 404, { error: 'guild_not_found' });
 
   if (url.pathname === '/api/carries/request' && req.method === 'POST') {
-    if (!authorised(req)) return json(res, 401, { error: 'unauthorised' });
     const userId = requestUserId(req);
     if (!userId) return json(res, 401, { error: 'missing_user' });
     try {
@@ -189,41 +219,112 @@ async function handler(client, req, res) {
         ticket: publicTicket(guild, result.ticket)
       });
     } catch (error) {
-      const normalised = normaliseWebsiteBridgeError(error);
-      return json(res, normalised.status, normalised.body);
+      return portalError(res, error);
     }
   }
 
   if (url.pathname === '/api/member' && req.method === 'GET') {
-    if (!authorised(req)) return json(res, 401, { error: 'unauthorised' });
     const userId = requestUserId(req);
     if (!userId) return json(res, 401, { error: 'missing_user' });
     try {
       return json(res, 200, await getWebsiteMemberProfile(guild, userId));
     } catch (error) {
-      const normalised = normaliseWebsiteBridgeError(error);
-      return json(res, normalised.status, normalised.body);
+      return portalError(res, error);
     }
   }
 
   if (url.pathname === '/api/member' && req.method === 'PATCH') {
-    if (!authorised(req)) return json(res, 401, { error: 'unauthorised' });
     const userId = requestUserId(req);
     if (!userId) return json(res, 401, { error: 'missing_user' });
     try {
       const body = await readJsonBody(req);
       return json(res, 200, await updateWebsiteMemberProfile(guild, userId, body));
     } catch (error) {
-      const normalised = normaliseWebsiteBridgeError(error);
-      return json(res, normalised.status, normalised.body);
+      return portalError(res, error);
     }
   }
 
   const state = await readGuildState(guild.id).catch(() => null);
   if (!state) return notFound(res);
 
+  if (url.pathname === '/api/events' && req.method === 'GET') return json(res, 200, { events: getPublicEvents(state) });
+  const eventId = eventIdFromPath(url.pathname);
+  if (eventId && req.method === 'GET') {
+    const event = getPublicEvent(state, eventId);
+    return event ? json(res, 200, event) : notFound(res);
+  }
+  if (url.pathname === '/api/carriers' && req.method === 'GET') return json(res, 200, { carriers: await getPublicCarriers(guild, state) });
+  if (url.pathname === '/api/quests' && req.method === 'GET') return json(res, 200, getPublicQuestBoard(state));
+  if (url.pathname === '/api/applications' && req.method === 'GET') return json(res, 200, getPublicApplications(state));
+  if (url.pathname === '/api/treasury' && req.method === 'GET') return json(res, 200, getPublicTreasury(state));
+  if (url.pathname === '/api/systems' && req.method === 'GET') return json(res, 200, getPublicSystems(state));
+
+  if (url.pathname === '/api/portal/member' && req.method === 'GET') {
+    const userId = requestUserId(req);
+    if (!userId) return json(res, 401, { error: 'missing_user' });
+    try {
+      return json(res, 200, await getMemberPortal(guild, state, userId));
+    } catch (error) {
+      return portalError(res, error);
+    }
+  }
+
+  if (url.pathname === '/api/portal/staff' && req.method === 'GET') {
+    const userId = requestUserId(req);
+    if (!userId) return json(res, 401, { error: 'missing_user' });
+    try {
+      return json(res, 200, await getStaffPortal(guild, state, userId));
+    } catch (error) {
+      return portalError(res, error);
+    }
+  }
+
+  const rsvpEventId = eventRsvpIdFromPath(url.pathname);
+  if (rsvpEventId && req.method === 'POST') {
+    const userId = requestUserId(req);
+    if (!userId) return json(res, 401, { error: 'missing_user' });
+    try {
+      const body = await readJsonBody(req);
+      return json(res, 200, await setWebsiteEventRsvp(guild, userId, rsvpEventId, String(body.response ?? '')));
+    } catch (error) {
+      return portalError(res, error);
+    }
+  }
+
+  if (url.pathname === '/api/referrals' && req.method === 'POST') {
+    const userId = requestUserId(req);
+    if (!userId) return json(res, 401, { error: 'missing_user' });
+    try {
+      const body = await readJsonBody(req);
+      return json(res, 201, await registerWebsiteReferral(guild, userId, body.targetId));
+    } catch (error) {
+      return portalError(res, error);
+    }
+  }
+
+  if (url.pathname === '/api/treasury/requests' && req.method === 'POST') {
+    const userId = requestUserId(req);
+    if (!userId) return json(res, 401, { error: 'missing_user' });
+    try {
+      const body = await readJsonBody(req);
+      return json(res, 201, await submitWebsiteTreasuryRequest(guild, userId, body));
+    } catch (error) {
+      return portalError(res, error);
+    }
+  }
+
+  if (url.pathname === '/api/marketplace' && req.method === 'POST') {
+    const userId = requestUserId(req);
+    if (!userId) return json(res, 401, { error: 'missing_user' });
+    try {
+      const body = await readJsonBody(req);
+      return json(res, 201, await createWebsiteMarketListing(guild, userId, body));
+    } catch (error) {
+      return portalError(res, error);
+    }
+  }
+
   if (url.pathname === '/api/carries/mine' && req.method === 'GET') {
-    if (!authorised(req)) return json(res, 401, { error: 'unauthorised' });
     const userId = requestUserId(req);
     if (!userId) return json(res, 401, { error: 'missing_user' });
     const tickets = Object.values(state.carryTickets ?? {})
@@ -233,26 +334,20 @@ async function handler(client, req, res) {
     return json(res, 200, tickets);
   }
 
-  if (url.pathname === '/api/carries') {
+  if (url.pathname === '/api/carries' && req.method === 'GET') {
     const tickets = Object.values(state.carryTickets ?? {})
       .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt))
       .map((ticket) => publicTicket(guild, ticket));
     return json(res, 200, tickets);
   }
-  if (url.pathname === '/api/houses') return json(res, 200, state.kingdom?.houses ?? {});
-  if (url.pathname === '/api/marketplace') return json(res, 200, Object.values(state.marketV4?.listings ?? {}).filter((x) => x.status === 'active'));
-  if (url.pathname === '/api/leaderboard') {
+  if (url.pathname === '/api/houses' && req.method === 'GET') return json(res, 200, state.kingdom?.houses ?? {});
+  if (url.pathname === '/api/marketplace' && req.method === 'GET') return json(res, 200, Object.values(state.marketV4?.listings ?? {}).filter((x) => x.status === 'active'));
+  if (url.pathname === '/api/leaderboard' && req.method === 'GET') {
     const rows = Object.values(state.identities ?? {}).sort((a, b) => (b.kingdomXp ?? 0) - (a.kingdomXp ?? 0)).slice(0, 100);
     return json(res, 200, rows.map((x) => ({ userId: x.userId, kingdomXp: x.kingdomXp ?? 0, prestige: x.prestige ?? 0, stats: x.stats ?? {} })));
   }
-  if (url.pathname === '/api/admin/security') {
-    if (!authorised(req)) return json(res, 401, { error: 'unauthorised' });
-    return json(res, 200, state.securityV4 ?? {});
-  }
-  if (url.pathname === '/api/admin/config') {
-    if (!authorised(req)) return json(res, 401, { error: 'unauthorised' });
-    return json(res, 200, { schemaVersion: state.platform?.schemaVersion, featureFlags: state.platform?.featureFlags ?? {} });
-  }
+  if (url.pathname === '/api/admin/security' && req.method === 'GET') return json(res, 200, state.securityV4 ?? {});
+  if (url.pathname === '/api/admin/config' && req.method === 'GET') return json(res, 200, { schemaVersion: state.platform?.schemaVersion, featureFlags: state.platform?.featureFlags ?? {} });
   return notFound(res);
 }
 
