@@ -2,6 +2,7 @@ import http from 'node:http';
 import { WebSocketServer } from 'ws';
 import { readGuildState } from '../storage/store.js';
 import { handleEcosystemApi } from './ecosystemApiV1.js';
+import { handleKingdomKeyApi } from './kingdomKeyApiV1.js';
 import {
   createWebsiteCarryTicket,
   getWebsiteMemberProfile,
@@ -209,11 +210,14 @@ async function handler(client, req, res) {
   if (!guild) return json(res, 404, { error: 'guild_not_found' });
 
   if (url.pathname.startsWith('/api/ecosystem/')) {
-    return handleEcosystemApi(guild, req, url, {
+    const helpers = {
       json: (status, body) => json(res, status, body),
       readJsonBody: () => readJsonBody(req),
       requestUserId: () => requestUserId(req)
-    });
+    };
+    const keyHandled = await handleKingdomKeyApi(guild, req, url, helpers);
+    if (keyHandled !== false) return keyHandled;
+    return handleEcosystemApi(guild, req, url, helpers);
   }
 
   if (url.pathname === '/api/carries/request' && req.method === 'POST') {
