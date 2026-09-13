@@ -3,7 +3,7 @@ name: Kingdom Ecosystem Check
 on:
   pull_request:
   push:
-    branches: [feature/kingdom-ecosystem-foundations]
+    branches: [main, feature/kingdom-ecosystem-foundations]
 
 permissions:
   contents: read
@@ -17,8 +17,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
-      - run: npm ci
+      - run: npm install --ignore-scripts
       - name: Syntax check ecosystem services
         run: |
           node --check src/services/ecosystemV1.js
