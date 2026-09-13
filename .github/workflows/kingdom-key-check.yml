@@ -1,0 +1,35 @@
+name: Kingdom Key Check
+
+on:
+  pull_request:
+    paths:
+      - 'src/services/kingdomKeyV1.js'
+      - 'src/services/kingdomKeyApiV1.js'
+      - 'src/services/platformApiV4.js'
+      - 'scripts/kingdom-key-selftest.js'
+      - '.github/workflows/kingdom-key-check.yml'
+  push:
+    branches: [feature/kingdom-key-rbac]
+
+permissions:
+  contents: read
+
+jobs:
+  key:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install --ignore-scripts
+      - name: Syntax check
+        run: |
+          node --check src/services/kingdomKeyV1.js
+          node --check src/services/kingdomKeyApiV1.js
+          node --check src/services/platformApiV4.js
+      - name: Kingdom Key self-test
+        run: node scripts/kingdom-key-selftest.js
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
