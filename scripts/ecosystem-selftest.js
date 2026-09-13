@@ -84,7 +84,7 @@ assert.ok(referral.code.startsWith('K'));
 assert.ok(referral.url.includes(referral.code));
 
 assert.ok(searchKingdom(state, 'Abyssal').length >= 2);
-assert.equal(kingdomTrust(state, '100').dimensions.carryReliability.score, 100);
+assert.equal(kingdomTrust(state, '300').dimensions.carryReliability.score, 100);
 
 const contract = createKingdomContract(state, '999', { title: 'Asset custody', parties: ['100'], terms: 'Return the asset when due.' });
 assert.equal(signKingdomContract(state, '100', contract.id).status, 'active');
