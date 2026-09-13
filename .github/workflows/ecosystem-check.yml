@@ -1,0 +1,30 @@
+name: Kingdom Ecosystem Check
+
+on:
+  pull_request:
+  push:
+    branches: [main, feature/kingdom-ecosystem-foundations]
+
+permissions:
+  contents: read
+
+jobs:
+  ecosystem:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install --ignore-scripts
+      - name: Syntax check ecosystem services
+        run: |
+          node --check src/services/ecosystemV1.js
+          node --check src/services/ecosystemApiV1.js
+          node --check src/services/platformApiV4.js
+          node --check src/index.js
+      - name: Ecosystem self-test
+        run: node scripts/ecosystem-selftest.js
+      - name: Production dependency audit
+        run: npm audit --omit=dev --audit-level=high

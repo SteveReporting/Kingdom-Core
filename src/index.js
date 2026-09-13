@@ -26,6 +26,7 @@ import {
   handleCommunityV4Select,
   runCommunityMaintenance
 } from './services/communityV4.js';
+import { initializeEcosystemGuild, runKingdomForgeMaintenance } from './services/ecosystemV1.js';
 import { startExternalInfra } from './services/externalInfraV4.js';
 import { installGatewayHealth } from './services/gatewayHealth.js';
 import { handleButton, handleModal, handleSelect } from './services/interactions.js';
@@ -107,6 +108,7 @@ async function runMaintenance(guild) {
     await runStep('platform-automation', () => runPlatformAutomationV4(guild));
     await runStep('heartbeat-safe-v5', () => runHeartbeatSafePlatformMaintenance(guild));
     await runStep('community', () => runCommunityMaintenance(guild));
+    await runStep('ecosystem-forge', () => runKingdomForgeMaintenance(guild));
     await runStep('v10-realm-engines', () => runRealmMaintenanceV10(guild));
     await runStep('v10-realm-intelligence', () => runRealmIntelligenceMaintenanceV10(guild));
     await runStep('v10-resource-guard', () => runV10Maintenance(guild));
@@ -122,7 +124,11 @@ client.once(Events.ClientReady, (readyClient) => {
   readyClient.user.setPresence({ activities: [{ name: 'over the Kingdom', type: ActivityType.Watching }], status: 'online' });
 
   const initial = setTimeout(() => {
-    for (const guild of readyClient.guilds.cache.values()) runMaintenance(guild).catch(() => null);
+    for (const guild of readyClient.guilds.cache.values()) {
+      initializeEcosystemGuild(guild)
+        .catch((error) => console.error(`[Ecosystem] initialization failed for ${guild.name}:`, error))
+        .finally(() => runMaintenance(guild).catch(() => null));
+    }
   }, 15_000);
   initial.unref?.();
 
@@ -139,6 +145,7 @@ client.once(Events.ClientReady, (readyClient) => {
 client.on(Events.GuildMemberAdd, async (member) => {
   await updateServerStats(member.guild).catch(() => null);
   await trackPlatformEvent(member.guild.id, 'member.joined', { userId: member.id, accountCreatedAt: member.user.createdAt.toISOString() }).catch(() => null);
+  await initializeEcosystemGuild(member.guild).catch(() => null);
 });
 
 client.on(Events.GuildMemberRemove, async (member) => {
