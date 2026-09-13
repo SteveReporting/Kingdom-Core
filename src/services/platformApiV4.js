@@ -1,6 +1,7 @@
 import http from 'node:http';
 import { WebSocketServer } from 'ws';
 import { readGuildState } from '../storage/store.js';
+import { handleEcosystemApi } from './ecosystemApiV1.js';
 import {
   createWebsiteCarryTicket,
   getWebsiteMemberProfile,
@@ -206,6 +207,14 @@ async function handler(client, req, res) {
     return data ? json(res, 200, data) : json(res, 404, { error: 'guild_not_found' });
   }
   if (!guild) return json(res, 404, { error: 'guild_not_found' });
+
+  if (url.pathname.startsWith('/api/ecosystem/')) {
+    return handleEcosystemApi(guild, req, url, {
+      json: (status, body) => json(res, status, body),
+      readJsonBody: () => readJsonBody(req),
+      requestUserId: () => requestUserId(req)
+    });
+  }
 
   if (url.pathname === '/api/carries/request' && req.method === 'POST') {
     const userId = requestUserId(req);
