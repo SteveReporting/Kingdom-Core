@@ -1,5 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { randomUUID } from 'node:crypto';
 
 // Fail closed for every file created by the Kingdom Core process, including Vault backups.
 // Explicit state writes below are additionally forced to 0600.
@@ -41,11 +42,21 @@ export async function readGuildState(guildId) {
 export async function writeGuildState(guildId, state) {
   await ensureDir();
   const target = guildFile(guildId);
-  const temp = `${target}.tmp`;
-  await fs.writeFile(temp, JSON.stringify(state, null, 2), { encoding: 'utf8', mode: FILE_MODE });
-  await fs.chmod(temp, FILE_MODE).catch(() => null);
-  await fs.rename(temp, target);
-  await fs.chmod(target, FILE_MODE).catch(() => null);
+
+  // Never share a fixed `.tmp` path between writers. A few Kingdom subsystems can
+  // persist state independently of mutateGuildState(), so overlapping writes used
+  // to race on `${target}.tmp`: one writer could rename it while another was still
+  // expecting the same temp path, producing ENOENT and breaking panel refreshes.
+  const temp = `${target}.${process.pid}.${randomUUID()}.tmp`;
+  try {
+    await fs.writeFile(temp, JSON.stringify(state, null, 2), { encoding: 'utf8', mode: FILE_MODE });
+    await fs.chmod(temp, FILE_MODE).catch(() => null);
+    await fs.rename(temp, target);
+    await fs.chmod(target, FILE_MODE).catch(() => null);
+  } finally {
+    // Harmless after a successful rename; important if a write/rename fails midway.
+    await fs.unlink(temp).catch(() => null);
+  }
 }
 
 export async function mutateGuildState(guildId, mutator) {
