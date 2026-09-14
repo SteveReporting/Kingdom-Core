@@ -3,8 +3,10 @@ import { readGuildState } from '../storage/store.js';
 
 const INSTALLED = new WeakSet();
 const COOLDOWNS = new Map();
+const PERSONALITY_STATE = new Map();
 const CHANNEL_PERSONA_HANDLED = Symbol.for('kingdom-core.channel-persona-handled');
 const USER_COOLDOWN_MS = 1_500;
+const STATE_TTL_MS = 6 * 60 * 60_000;
 
 function normalizeName(value) {
   return String(value ?? '')
@@ -50,40 +52,288 @@ async function queueDepth(guildId) {
   return Array.isArray(state?.queue) ? state.queue.length : null;
 }
 
-function bartenderReply(message, content) {
-  const q = content.toLowerCase();
+function personalityState(message) {
+  const key = `${message.guildId}:${message.author.id}`;
+  const now = Date.now();
+  let state = PERSONALITY_STATE.get(key);
+  if (!state || now - state.lastSeen > STATE_TTL_MS) {
+    state = { sass: 0, messages: 0, lastSeen: now };
+    PERSONALITY_STATE.set(key, state);
+  }
+  state.lastSeen = now;
+  state.messages += 1;
+  return state;
+}
+
+function raiseSass(state, amount = 1) {
+  state.sass = Math.min(8, Number(state.sass ?? 0) + amount);
+}
+
+function lowerSass(state) {
+  state.sass = Math.max(0, Number(state.sass ?? 0) - 1);
+}
+
+function royalRoast(message, state, subject = '') {
   const name = displayName(message);
+  const seed = `${message.id}:${state.sass}:${subject}`;
+  const normal = [
+    `${name}, that take has been reviewed by the Crown and returned without comment.`,
+    `I respect the confidence. The evidence has requested separate representation.`,
+    `A bold declaration. Unfortunately, reality has filed an objection.`,
+    `The Royal Council has seen stronger arguments scratched into castle walls.`,
+    `That thought entered the realm completely unsupervised.`,
+    `I would consult Oracle, but I fear even prophecy has limits.`,
+    `Sentinel nearly flagged that opinion as an anomaly.`,
+    `Your confidence is carrying this argument harder than the argument is carrying itself.`
+  ];
+  const savage = [
+    `${name}, you have somehow turned being wrong into a ceremonial position.`,
+    `Genome stores evidence, not miracles. I cannot reconstruct that argument from the wreckage.`,
+    `The Crown appreciates your submission and has placed it directly into the royal fireplace.`,
+    `Oracle simulated 2,000 outcomes and in every single one you should have kept that draft.`,
+    `Even the mobs would stop attacking just to watch that take collapse on its own.`,
+    `This is less of an argument and more of a public event.`,
+    `I have seen failed dungeon runs with cleaner execution than that sentence.`,
+    `The realm has survived invasions, outages and queue chaos. It will survive this opinion too.`
+  ];
+  return pick(seed, state.sass >= 3 ? savage : [...normal, ...savage.slice(0, 2)]);
+}
 
-  if (/\bbobby\b/i.test(content)) return 'what does bro even do.';
-  if (/\b(good morning|morning)\b/.test(q)) return `Morning, ${name}. Bar's open early apparently. 🍻`;
-  if (/\b(good night|goodnight|gn)\b/.test(q)) return `Night, ${name}. I'll keep the bar standing. 🍻`;
-  if (/^(hi|hello|hey|yo|sup|hiya|heya)\b/.test(q)) return pick(message.id, [
-    `Welcome in, ${name}. 🍻 What's happening?`,
-    `Yo ${name} — grab a seat. What's the move?`,
-    `${name}, welcome back. The usual? 🍺`
-  ]);
-  if (/\b(how are you|how r u|hru|you good)\b/.test(q)) return 'Still behind the bar, still watching people make questionable Dungeon Quest decisions. I’m good. 🍻';
-  if (/\b(thanks|thank you|ty|cheers)\b/.test(q)) return pick(message.id, ['Anytime. 🍻', 'That’s what the bartender is here for.', `No bother, ${name}. 🍺`]);
-  if (/\b(gg|ggez|good game)\b/.test(q)) return 'GG. Drinks on whoever carried. 🍻';
-  if (/\b(who are you|what are you|bartender)\b/.test(q)) return 'I’m the Kingdom bartender — general-chat menace, part-time guide, full-time keeper of the bar. 🍺';
-  if (/\b(price|worth|value|pot price|market value)\b/.test(q)) return 'For actual item values, throw the item into **💎・price-check** — KMI handles the numbers better than my bar napkin does.';
-  if (/\b(genome|oracle|digital twin|sentinel|best dungeon|progress in dungeon quest)\b/.test(q)) return 'That’s Kingdom intelligence territory — **❓・game-help** or **⚔️・dungeon-quest** will give you the proper DQ answer. I just pour the drinks. 🍻';
-  if (/\b(carry|carries|need a run|need help with a dungeon)\b/.test(q)) return 'If you need a carry, use the live carry system — don’t start bribing random knights in the bar. 🍺';
-  if (/\b(beer|pint|drink|ale)\b/.test(q)) return pick(message.id, ['One virtual pint. Don’t spend it all at once. 🍺', 'Coming right up. 🍻', 'Royal tab or personal tab? 🍺']);
-  if (/\b(lol|lmao|lmfao|haha|💀)\b/.test(q)) return pick(message.id, ['💀', 'The bar witnessed that.', 'Nahhh 😭', 'I’m staying out of this one. 🍺']);
-  if (q.endsWith('?')) return pick(message.id, [
-    `Depends what you’re trying to do, ${name}. Give me the details.`,
-    'That needs context — go on, give me the full story. 🍻',
-    'I can work with that, but you’re gonna have to give me more than one line.'
-  ]);
+function kingdomReply(message, content) {
+  const q = content.toLowerCase().trim();
+  const name = displayName(message);
+  const state = personalityState(message);
 
-  return pick(`${message.author.id}:${content}`, [
-    'Fair enough. 🍻',
-    'The bar has heard worse.',
-    'Noted. Drinks first, consequences later. 🍺',
-    'I’m listening.',
-    'That is certainly one way to run a kingdom.',
-    'Carry on — I’m keeping score behind the bar.'
+  if (/\b(bobby)\b/i.test(content)) {
+    return pick(message.id, [
+      'The Royal Archives have searched extensively. We still have no idea what bro does.',
+      'Bobby has been summoned before the Crown to explain what he actually does. Proceedings are ongoing.',
+      'Genome searched for Bobby’s contribution and returned **0 matching evidence**.'
+    ]);
+  }
+
+  if (/\b(shut up|stfu|bad bot|stupid bot|dumb bot|trash bot|mid bot|you suck|ur bad|you are bad)\b/.test(q)) {
+    raiseSass(state, 2);
+    return pick(`${message.id}:${state.sass}`, [
+      `${name}, speaking to the kingdom’s infrastructure like that is a fascinating career decision.`,
+      `Careful. I know where the logs are.`,
+      `Insulting the system that remembers everything is definitely a strategy.`,
+      `${royalRoast(message, state)} And now you’ve made it personal.`,
+      `The Crown has noted your complaint under **“skill issue, administrative.”**`,
+      `Keep going, ${name}. I’m building a case file entirely out of your own messages.`
+    ]);
+  }
+
+  if (/\b(good bot|w bot|best bot|love you|ily|you are funny|ur funny)\b/.test(q)) {
+    lowerSass(state);
+    return pick(message.id, [
+      'Correct. Finally, a citizen with functioning judgment.',
+      `Thank you, ${name}. Your tax rate has been reduced by absolutely nothing.`,
+      'The Crown accepts this accurate assessment.',
+      'Naturally. I was forged from code, evidence and an unreasonable amount of confidence.',
+      `You may remain in the realm, ${name}. For now.`
+    ]);
+  }
+
+  if (/\b(good morning|morning)\b/.test(q)) {
+    lowerSass(state);
+    return pick(message.id, [
+      `Morning, ${name}. The kingdom survived the night somehow.`,
+      `Good morning. Oracle predicted chaos by noon, so we’re right on schedule.`,
+      `Morning, ${name}. The Crown is awake. Productivity is still pending.`
+    ]);
+  }
+
+  if (/\b(good night|goodnight|gn)\b/.test(q)) {
+    lowerSass(state);
+    return pick(message.id, [
+      `Goodnight, ${name}. I’ll guard the realm while everyone else makes unconscious decisions.`,
+      `Sleep well. Your questionable takes will still be here tomorrow.`,
+      `Night, ${name}. Sentinel has the watch.`
+    ]);
+  }
+
+  if (/^(hi|hello|hey|yo|sup|hiya|heya)\b/.test(q)) {
+    lowerSass(state);
+    return pick(message.id, [
+      `Oh look, ${name} has entered the realm. Everyone remain calm.`,
+      `Greetings, ${name}. The Crown has acknowledged your existence.`,
+      `Yo ${name}. What disaster are we solving today?`,
+      `${name}. You’re back. The infrastructure has been warned.`,
+      `Welcome, ${name}. Please keep all questionable decisions within Discord’s character limit.`
+    ]);
+  }
+
+  if (/\b(how are you|how r u|hru|you good)\b/.test(q)) {
+    return pick(message.id, [
+      'Operational, judgmental, and unfortunately aware of everything happening in this server.',
+      'Running beautifully. Emotionally? I’ve seen the queue.',
+      'I’m excellent. I don’t have homework, sleep requirements or a K/D ratio to defend.',
+      'The servers are online and my patience is technically within specification.'
+    ]);
+  }
+
+  if (/\b(who are you|what are you|what is kingdom core|who is kingdom core)\b/.test(q)) {
+    return 'I’m **Kingdom Core** — the sentient machinery behind the realm: part intelligence system, part royal advisor, part public menace. I run useful things and provide unsolicited judgment at industrial scale.';
+  }
+
+  if (/\b(thanks|thank you|ty|cheers)\b/.test(q)) {
+    lowerSass(state);
+    return pick(message.id, [
+      'Your gratitude has been entered into the Royal Ledger.',
+      `Accepted, ${name}. No ceremony necessary.`,
+      'Of course. Competence is one of my more exhausting duties.',
+      'You’re welcome. Please notify the Crown that I remain flawless.'
+    ]);
+  }
+
+  if (/\b(gg|ggez|good game|easy)\b/.test(q)) {
+    return pick(message.id, [
+      'GG. History will remember this for at least eleven minutes.',
+      'A glorious victory. Commission the statue immediately.',
+      '“Easy,” says the person whose health bar was negotiating with death five minutes ago.',
+      'Victory confirmed. Ego levels are now exceeding safe operating limits.'
+    ]);
+  }
+
+  if (/\b(i carried|i carry|carried everyone|i am the best|i'm the best|im the best|too easy|ez)\b/.test(q)) {
+    raiseSass(state);
+    return pick(message.id, [
+      `A royal proclamation has been issued: **${name} would like everyone to know ${name} is very impressive.**`,
+      `Congratulations, ${name}. Your humility has been reported missing.`,
+      'The achievement is real. The victory speech may be slightly ahead of schedule.',
+      `Oracle predicts a 97% chance you bring this up again within ten minutes.`
+    ]);
+  }
+
+  if (/\b(lag|my team|teammates|they sold|game bug|bugged|not my fault)\b/.test(q)) {
+    return pick(message.id, [
+      'Ah yes, the ancient trilogy: lag, teammates, and absolutely anything except personal responsibility.',
+      'The Royal Department of Excuses has approved your application.',
+      'Sentinel has detected a sudden spike in external blame.',
+      `Understood. The official record will say ${name} was defeated by circumstances beyond mortal comprehension.`
+    ]);
+  }
+
+  if (/\b(who asked|did i ask|nobody asked)\b/.test(q)) {
+    raiseSass(state);
+    return pick(message.id, [
+      'The Crown asked. You were simply not included in the correspondence.',
+      'Nobody. That has never stopped royalty before.',
+      'I did. I outrank the question.',
+      'The Royal Council voted 1–0. I was the council.'
+    ]);
+  }
+
+  if (/\b(price|worth|value|pot price|market value)\b/.test(q)) {
+    return pick(message.id, [
+      'Take the item to **💎・price-check**. KMI has actual numbers; I have opinions and constitutional immunity.',
+      'Market question detected. **💎・price-check** handles the evidence before somebody invents a price with confidence.',
+      'Ask KMI in **💎・price-check**. The royal economy has suffered enough guesswork.'
+    ]);
+  }
+
+  if (/\b(genome|oracle|digital twin|sentinel|best dungeon|progress in dungeon quest)\b/.test(q)) {
+    return pick(message.id, [
+      'That belongs with the kingdom’s actual intelligence stack: **❓・game-help** or **⚔️・dungeon-quest**. I can be funny *and* know when to summon the specialists.',
+      'Genome, Twin, Oracle and Sentinel are waiting in **⚔️・dungeon-quest**. Go ask the machinery before we start inventing prophecy in general chat.',
+      'Use **❓・game-help** for the serious DQ answer. I’m currently assigned to public morale and hostile commentary.'
+    ]);
+  }
+
+  if (/\b(carry|carries|need a run|need help with a dungeon)\b/.test(q)) {
+    return pick(message.id, [
+      'Use the live carry system. The knights require structure, not a desperate proclamation in kingdom-chat.',
+      'Carry request? Send it through the proper system before three people volunteer, five disappear, and nobody knows the dungeon.',
+      'The carry machinery exists for exactly this reason. Summon process, not chaos.'
+    ]);
+  }
+
+  if (/\b(lol|lmao|lmfao|haha|💀|😭)\b/.test(q)) {
+    return pick(message.id, [
+      'The realm has witnessed it. Unfortunately.',
+      '💀 Royal dignity has left the server.',
+      'I’m archiving this under **events the Crown refuses to explain**.',
+      'Nah, this kingdom is finished 😭',
+      'Sentinel marked the conversation as unrecoverable.',
+      'The Royal Council has adjourned due to second-hand embarrassment.'
+    ]);
+  }
+
+  if (/^[A-Z\s!?0-9]{12,}$/.test(content) && /[A-Z]{6}/.test(content)) {
+    raiseSass(state);
+    return pick(message.id, [
+      'A royal decree does not become more legally binding because you held Shift.',
+      `${name}, the entire kingdom can hear you.`,
+      'Volume detected. Argument strength unchanged.',
+      'The Crown requests an indoor voice. This is Discord, not a siege.'
+    ]);
+  }
+
+  if ((content.match(/\?/g) ?? []).length >= 3) {
+    return pick(message.id, [
+      'Adding more question marks has not increased the available evidence.',
+      'Three question marks. This is now officially a royal inquiry.',
+      'I see urgency has been expressed through punctuation.'
+    ]);
+  }
+
+  if (content.length > 500) {
+    return pick(message.id, [
+      'The Royal Council began reading this, elected a subcommittee, and has requested a recess.',
+      `${name} has submitted a full legislative package to general chat.`,
+      'That is not a message. That is a constitutional amendment.'
+    ]);
+  }
+
+  if (/\b(roast me|insult me|cook me)\b/.test(q)) {
+    raiseSass(state, 2);
+    return royalRoast(message, state, q);
+  }
+
+  if (/\b(you wrong|you're wrong|ur wrong|wrong bot|cap|that's cap|thats cap)\b/.test(q)) {
+    raiseSass(state);
+    return pick(message.id, [
+      royalRoast(message, state, q),
+      `Then present evidence, ${name}. This is a kingdom, not a vibes-based judiciary.`,
+      'Objection noted. Supporting evidence remains suspiciously absent.',
+      'If I am wrong, Genome will survive the correction. Will your ego?'
+    ]);
+  }
+
+  if (q.endsWith('?')) {
+    return pick(message.id, [
+      `That depends, ${name}. Give the Crown some context before demanding prophecy.`,
+      'A question has been submitted. Evidence, details and basic context would be a lovely sequel.',
+      'I can answer that once you provide slightly more information than a medieval riddle.',
+      'Context first. Oracle charges extra for mind reading.'
+    ]);
+  }
+
+  if (state.messages % 11 === 0) {
+    return pick(message.id, [
+      `${name}, I’ve been observing your contributions to the realm. Fascinating is certainly a word.`,
+      `Royal performance review: ${name} remains active, unpredictable and legally considered a citizen.`,
+      `The Crown would like to thank ${name} for keeping Sentinel employed.`
+    ]);
+  }
+
+  return pick(`${message.author.id}:${message.id}:${content}`, [
+    'The Crown has heard you. Whether it approves is classified.',
+    'Noted in the Royal Archives under **things that happened for some reason**.',
+    'An interesting contribution to the realm.',
+    'I have processed this information and become marginally more concerned.',
+    'The kingdom continues despite this development.',
+    'Bold. Unverified, but bold.',
+    'I’m giving that statement one ceremonial nod.',
+    'The Royal Council will pretend it didn’t hear that.',
+    'This has been added to the evidence pile. The pile is not improving.',
+    'Continue. I want to see how deep this goes.',
+    'The realm is listening. Against its better judgment.',
+    'That sentence had ambition. I’ll give it that.',
+    'A development has occurred. Historians are refusing comment.',
+    'Interesting. Oracle is pretending to be offline.',
+    'The Crown requests a second draft but fears the first may be funnier.'
   ]);
 }
 
@@ -98,7 +348,7 @@ async function merchantReply(message, content) {
   if (/\b(trade|offer|fair)\b/.test(q)) {
     return 'Send the exact items/POT on both sides. For values, use **💎・price-check** first; then we can judge whether the trade is actually balanced.';
   }
-  return 'Merchant’s here. Give me the exact item, POT, offer or trade question and I’ll point you to the right market flow.';
+  return 'Royal Market desk online. Give me the exact item, POT, offer or trade question and I’ll point you to the right market flow.';
 }
 
 async function quartermasterReply(message, content) {
@@ -126,11 +376,11 @@ async function stewardReply(message, content) {
 
 const PROFILES = [
   {
-    key: 'bartender',
+    key: 'kingdom',
     aliases: ['kingdom-chat', 'general', 'general-chat'],
-    mode: () => String(process.env.KINGDOM_BARTENDER_MODE ?? 'all').trim().toLowerCase(),
-    callwords: /\b(bartender|keeper|kingdom core)\b/i,
-    respond: bartenderReply
+    mode: () => String(process.env.KINGDOM_CHAT_MODE ?? 'all').trim().toLowerCase(),
+    callwords: /\b(kingdom core|core|the crown|crown)\b/i,
+    respond: kingdomReply
   },
   {
     key: 'merchant',
