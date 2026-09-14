@@ -278,8 +278,9 @@ export async function callLocalKingdomAi(prompt, context = {}) {
   const baseUrl = String(process.env.KINGDOM_AI_LOCAL_URL ?? '').trim().replace(/\/$/, '');
   if (!baseUrl) throw new Error('Kingdom AI local fallback is disabled: KINGDOM_AI_LOCAL_URL is not configured.');
   const model = String(process.env.KINGDOM_AI_LOCAL_MODEL ?? 'sentient-local');
+  const timeoutMs = Math.max(5_000, Number(process.env.KINGDOM_AI_TIMEOUT_MS ?? 60_000));
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 15_000);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const response = await fetch(`${baseUrl}/api/chat`, {
       method: 'POST',
@@ -287,8 +288,14 @@ export async function callLocalKingdomAi(prompt, context = {}) {
       body: JSON.stringify({
         model,
         stream: false,
+        think: false,
+        keep_alive: '30m',
+        options: {
+          num_predict: 300,
+          temperature: 0.4
+        },
         messages: [
-          { role: 'system', content: 'You are Kingdom AI. Answer only from the supplied Kingdom context when context is relevant. Never claim to have performed actions you did not perform.' },
+          { role: 'system', content: 'You are Kingdom AI. Give useful, concise Dungeon Quest answers. Answer only from the supplied Kingdom context when context is relevant. Never claim to have performed actions you did not perform.' },
           { role: 'user', content: `${String(prompt).slice(0, 6000)}\n\nContext:\n${JSON.stringify(context).slice(0, 12000)}` }
         ]
       }),
@@ -297,6 +304,9 @@ export async function callLocalKingdomAi(prompt, context = {}) {
     if (!response.ok) throw new Error(`Local AI returned HTTP ${response.status}`);
     const data = await response.json();
     return String(data?.message?.content ?? data?.response ?? '').trim();
+  } catch (error) {
+    if (error?.name === 'AbortError') throw new Error(`Kingdom AI timed out after ${Math.round(timeoutMs / 1000)} seconds.`);
+    throw error;
   } finally {
     clearTimeout(timer);
   }
