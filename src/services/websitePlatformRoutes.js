@@ -46,7 +46,7 @@ export async function handleWebsitePlatformRoute(guild, req, url, { userId, read
     || pathname.startsWith('/api/tickets')
     || pathname === '/api/carries/request'
     || pathname === '/api/carries/joinable'
-    || /^\/api\/carries\/[^/]+(?:\/(?:join|leave|messages))?$/.test(pathname);
+    || (pathname !== '/api/carries/mine' && /^\/api\/carries\/[^/]+(?:\/(?:join|leave|messages))?$/.test(pathname));
   if (!relevant) return null;
   if (!userId) return route(401, { error: 'missing_user', message: 'Sign in with Discord first.' });
 
@@ -93,7 +93,9 @@ export async function handleWebsitePlatformRoute(guild, req, url, { userId, read
       return route(200, await listUnifiedJoinableCarries(guild, userId));
     }
 
-    const carryMatch = pathname.match(/^\/api\/carries\/([^/]+)(?:\/(join|leave|messages))?$/);
+    const carryMatch = pathname === '/api/carries/mine'
+      ? null
+      : pathname.match(/^\/api\/carries\/([^/]+)(?:\/(join|leave|messages))?$/);
     if (carryMatch) {
       const id = decoded(carryMatch[1]);
       const action = carryMatch[2] ?? '';
