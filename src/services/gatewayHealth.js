@@ -2,6 +2,7 @@ import { Message } from 'discord.js';
 import { installLiveKingdomPresence, CHANNEL_PERSONA_HANDLED } from './liveKingdomPresenceV2.js';
 import { installLiveDQSystems } from './liveDqSystems.js';
 import { installKingdomChatOutputNormalizer } from './kingdomChatOutputNormalizer.js';
+import { reconcileUnifiedCarries } from './unifiedCarryBridge.js';
 
 const READY_STATUS = 0;
 const ORIGINAL_MESSAGE_REPLY = Symbol.for('kingdom-core.original-message-reply');
@@ -62,6 +63,17 @@ export function installGatewayHealth(client, options = {}) {
   const startedAt = Date.now();
   let unhealthySince = null;
   let lastHealthyAt = null;
+
+  client.once('ready', () => {
+    const timer = setTimeout(async () => {
+      for (const guild of client.guilds.cache.values()) {
+        await reconcileUnifiedCarries(guild)
+          .then(() => console.log(`[CarrySync] unified carry state reconciled for ${guild.name}.`))
+          .catch((error) => console.error(`[CarrySync] reconciliation failed for ${guild.name}:`, error));
+      }
+    }, 2_500);
+    timer.unref?.();
+  });
 
   client.on('shardReady', (shardId) => {
     lastHealthyAt = Date.now();
