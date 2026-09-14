@@ -1,3 +1,5 @@
+import { installLiveDQSystems } from './liveDqSystems.js';
+
 const READY_STATUS = 0;
 
 function describeClose(event) {
@@ -6,6 +8,8 @@ function describeClose(event) {
 }
 
 export function installGatewayHealth(client, options = {}) {
+  installLiveDQSystems(client);
+
   const checkEveryMs = Number(options.checkEveryMs ?? 30_000);
   const startupGraceMs = Number(options.startupGraceMs ?? 90_000);
   const unhealthyRestartMs = Number(options.unhealthyRestartMs ?? 120_000);
