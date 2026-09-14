@@ -7,6 +7,7 @@ import {
   normaliseWebsiteBridgeError,
   updateWebsiteMemberProfile
 } from './websiteBridge.js';
+import { handleWebsitePlatformRoute } from './websitePlatformRoutes.js';
 
 let server = null;
 let wss = null;
@@ -83,6 +84,11 @@ function publicTicket(guild, ticket) {
     status: ticket.status,
     carrierId: ticket.carrierId ?? null,
     carrierName: carrier?.displayName ?? carrier?.user?.username ?? null,
+    memberCount: membersOf(ticket).length,
+    maxMembers: ticket.maxMembers ?? null,
+    runsCompleted: ticket.runsCompleted ?? null,
+    runTarget: ticket.runTarget ?? null,
+    requirement: ticket.requirement ?? null,
     createdAt: ticket.createdAt,
     claimedAt: ticket.claimedAt ?? null,
     startedAt: ticket.startedAt ?? null,
@@ -97,7 +103,7 @@ async function snapshot(client, guildId) {
   if (!guild) return null;
   const state = await readGuildState(guild.id);
   const carries = Object.values(state.carryTickets ?? {});
-  const active = carries.filter((x) => ['open', 'claimed', 'ready', 'running'].includes(x.status));
+  const active = carries.filter((x) => ['open', 'claimed', 'ready', 'running', 'between', 'closing'].includes(x.status));
   const profiles = Object.values(state.carrierOps?.profiles ?? {});
   const houses = state.kingdom?.houses ?? {};
   return {
@@ -140,20 +146,7 @@ async function snapshot(client, guildId) {
 }
 
 function dashboardHtml() {
-  return `<!doctype html>
-<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Kingdom Core Live</title>
-<style>
-:root{color-scheme:dark;font-family:Inter,system-ui,sans-serif;background:#08090d;color:#f5f5f5}body{margin:0;padding:32px;max-width:1200px;margin:auto}.top{display:flex;justify-content:space-between;gap:16px;align-items:end}.eyebrow{color:#d4af37;letter-spacing:.16em;font-size:12px;font-weight:800}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:14px;margin-top:28px}.card{background:linear-gradient(180deg,#171820,#101116);border:1px solid #2a2d39;border-radius:18px;padding:20px;box-shadow:0 18px 50px #0008}.label{color:#969aaa;font-size:12px;text-transform:uppercase;letter-spacing:.12em}.value{font-size:34px;font-weight:800;margin-top:8px}.gold{color:#e7bb38}.green{color:#57f287}.red{color:#ed4245}.section{margin-top:24px}.row{display:flex;justify-content:space-between;border-bottom:1px solid #242631;padding:12px 0}.muted{color:#969aaa}h1{margin:.25rem 0;font-size:clamp(30px,5vw,58px)}
-</style></head><body>
-<div class="top"><div><div class="eyebrow">KINGDOM CARRIES • CONTROL PLANE</div><h1>Kingdom Core Live</h1><div class="muted" id="status">Connecting…</div></div></div>
-<div class="grid"><div class="card"><div class="label">Members</div><div class="value" id="members">—</div></div><div class="card"><div class="label">Waiting</div><div class="value gold" id="waiting">—</div></div><div class="card"><div class="label">Running Parties</div><div class="value" id="running">—</div></div><div class="card"><div class="label">Knights On Duty</div><div class="value green" id="knights">—</div></div><div class="card"><div class="label">Players Helped</div><div class="value" id="helped">—</div></div><div class="card"><div class="label">Security</div><div class="value" id="security">—</div></div></div>
-<div class="card section"><div class="label">Kingdom</div><div class="row"><b id="stage">—</b><span id="xp">—</span></div><div id="houses"></div></div>
-<div class="card section"><div class="label">Carry Demand</div><div id="demand"></div></div>
-<script>
-const q=new URLSearchParams(location.search);const guild=q.get('guild')||'';function render(x){if(!x)return;members.textContent=x.guild.memberCount;waiting.textContent=x.carries.waiting;running.textContent=x.carries.running;knights.textContent=x.knights.onDuty;helped.textContent=x.knights.playersHelped;security.textContent=x.security.state;security.className='value '+(x.security.state==='NORMAL'?'green':x.security.state==='LOCKDOWN'?'red':'gold');stage.textContent=x.kingdom.stage+' • Level '+x.kingdom.level;xp.textContent=x.kingdom.xp+' XP';houses.innerHTML=Object.values(x.kingdom.houses||{}).sort((a,b)=>b.xp-a.xp).map(h=>'<div class="row"><span>'+h.name+'</span><b>'+h.xp+' XP</b></div>').join('');demand.innerHTML=Object.entries(x.carries.forecasts||{}).sort((a,b)=>b[1].requests-a[1].requests).slice(0,10).map(([n,d])=>'<div class="row"><span>'+n+'</span><span>'+d.requests+' demand • ~'+d.estimatedWaitMinutes+'m</span></div>').join('')||'<div class="row muted">No active demand</div>';status.textContent='Live • '+new Date(x.updatedAt).toLocaleTimeString()}
-fetch('/api/overview'+(guild?'?guild='+guild:'')).then(r=>r.json()).then(render);const ws=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/ws'+(guild?'?guild='+guild:''));ws.onmessage=e=>render(JSON.parse(e.data));ws.onopen=()=>status.textContent='Live';ws.onclose=()=>status.textContent='Disconnected';
-</script></body></html>`;
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Kingdom Core Live</title><style>:root{color-scheme:dark;font-family:system-ui;background:#08090d;color:#f5f5f5}body{margin:0 auto;max-width:1100px;padding:32px}.eyebrow{color:#d4af37;letter-spacing:.16em;font-size:12px;font-weight:800}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin-top:24px}.card{background:#121319;border:1px solid #2a2d39;border-radius:16px;padding:20px}.label{color:#969aaa;font-size:12px;text-transform:uppercase}.value{font-size:34px;font-weight:800;margin-top:8px}.gold{color:#e7bb38}</style></head><body><div class="eyebrow">KINGDOM CARRIES • CONTROL PLANE</div><h1>Kingdom Core Live</h1><p id="status">Connecting…</p><div class="grid"><div class="card"><div class="label">Members</div><div class="value" id="members">—</div></div><div class="card"><div class="label">Waiting</div><div class="value gold" id="waiting">—</div></div><div class="card"><div class="label">Running</div><div class="value" id="running">—</div></div><div class="card"><div class="label">Knights</div><div class="value" id="knights">—</div></div></div><script>const q=new URLSearchParams(location.search),g=q.get('guild')||'';function r(x){if(!x)return;members.textContent=x.guild.memberCount;waiting.textContent=x.carries.waiting;running.textContent=x.carries.running;knights.textContent=x.knights.onDuty;status.textContent='Live • '+new Date(x.updatedAt).toLocaleTimeString()}fetch('/api/overview'+(g?'?guild='+g:'')).then(x=>x.json()).then(r);const ws=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/ws'+(g?'?guild='+g:''));ws.onmessage=e=>r(JSON.parse(e.data));ws.onclose=()=>status.textContent='Disconnected';</script></body></html>`;
 }
 
 async function handler(client, req, res) {
@@ -162,12 +155,22 @@ async function handler(client, req, res) {
   const guild = client.guilds.cache.get(guildId) ?? client.guilds.cache.first();
 
   if (url.pathname === '/health') {
-    return json(res, 200, { ok: true, ping: client.ws.ping, uptimeSeconds: Math.round(process.uptime()), memoryMb: Math.round(process.memoryUsage().rss / 1024 / 1024) });
+    return json(res, 200, {
+      ok: true,
+      ping: client.ws.ping,
+      uptimeSeconds: Math.round(process.uptime()),
+      memoryMb: Math.round(process.memoryUsage().rss / 1024 / 1024)
+    });
   }
+
   if (!authorised(req)) return json(res, 401, { error: 'unauthorised' });
   if (url.pathname === '/') {
     const body = dashboardHtml();
-    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'content-length': Buffer.byteLength(body), 'cache-control': 'no-store' });
+    res.writeHead(200, {
+      'content-type': 'text/html; charset=utf-8',
+      'content-length': Buffer.byteLength(body),
+      'cache-control': 'no-store'
+    });
     return res.end(body);
   }
   if (url.pathname === '/api/overview') {
@@ -176,8 +179,13 @@ async function handler(client, req, res) {
   }
   if (!guild) return json(res, 404, { error: 'guild_not_found' });
 
+  const websiteRoute = await handleWebsitePlatformRoute(guild, req, url, {
+    userId: requestUserId(req),
+    readJsonBody
+  });
+  if (websiteRoute?.handled) return json(res, websiteRoute.status, websiteRoute.body);
+
   if (url.pathname === '/api/carries/request' && req.method === 'POST') {
-    if (!authorised(req)) return json(res, 401, { error: 'unauthorised' });
     const userId = requestUserId(req);
     if (!userId) return json(res, 401, { error: 'missing_user' });
     try {
@@ -195,7 +203,6 @@ async function handler(client, req, res) {
   }
 
   if (url.pathname === '/api/member' && req.method === 'GET') {
-    if (!authorised(req)) return json(res, 401, { error: 'unauthorised' });
     const userId = requestUserId(req);
     if (!userId) return json(res, 401, { error: 'missing_user' });
     try {
@@ -207,7 +214,6 @@ async function handler(client, req, res) {
   }
 
   if (url.pathname === '/api/member' && req.method === 'PATCH') {
-    if (!authorised(req)) return json(res, 401, { error: 'unauthorised' });
     const userId = requestUserId(req);
     if (!userId) return json(res, 401, { error: 'missing_user' });
     try {
@@ -223,35 +229,40 @@ async function handler(client, req, res) {
   if (!state) return notFound(res);
 
   if (url.pathname === '/api/carries/mine' && req.method === 'GET') {
-    if (!authorised(req)) return json(res, 401, { error: 'unauthorised' });
     const userId = requestUserId(req);
     if (!userId) return json(res, 401, { error: 'missing_user' });
     const tickets = Object.values(state.carryTickets ?? {})
-      .filter((ticket) => ticket.userId === userId)
-      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+      .filter((ticket) => ticket.userId === userId || membersOf(ticket).includes(userId) || (ticket.participantHistory ?? []).includes(userId))
+      .sort((a, b) => new Date(b.createdAt ?? 0) - new Date(a.createdAt ?? 0))
       .map((ticket) => publicTicket(guild, ticket));
     return json(res, 200, tickets);
   }
 
   if (url.pathname === '/api/carries') {
     const tickets = Object.values(state.carryTickets ?? {})
-      .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt))
+      .sort((a, b) => new Date(a.createdAt ?? 0) - new Date(b.createdAt ?? 0))
       .map((ticket) => publicTicket(guild, ticket));
     return json(res, 200, tickets);
   }
   if (url.pathname === '/api/houses') return json(res, 200, state.kingdom?.houses ?? {});
   if (url.pathname === '/api/marketplace') return json(res, 200, Object.values(state.marketV4?.listings ?? {}).filter((x) => x.status === 'active'));
   if (url.pathname === '/api/leaderboard') {
-    const rows = Object.values(state.identities ?? {}).sort((a, b) => (b.kingdomXp ?? 0) - (a.kingdomXp ?? 0)).slice(0, 100);
-    return json(res, 200, rows.map((x) => ({ userId: x.userId, kingdomXp: x.kingdomXp ?? 0, prestige: x.prestige ?? 0, stats: x.stats ?? {} })));
+    const rows = Object.values(state.identities ?? {})
+      .sort((a, b) => (b.kingdomXp ?? 0) - (a.kingdomXp ?? 0))
+      .slice(0, 100);
+    return json(res, 200, rows.map((x) => ({
+      userId: x.userId,
+      kingdomXp: x.kingdomXp ?? 0,
+      prestige: x.prestige ?? 0,
+      stats: x.stats ?? {}
+    })));
   }
-  if (url.pathname === '/api/admin/security') {
-    if (!authorised(req)) return json(res, 401, { error: 'unauthorised' });
-    return json(res, 200, state.securityV4 ?? {});
-  }
+  if (url.pathname === '/api/admin/security') return json(res, 200, state.securityV4 ?? {});
   if (url.pathname === '/api/admin/config') {
-    if (!authorised(req)) return json(res, 401, { error: 'unauthorised' });
-    return json(res, 200, { schemaVersion: state.platform?.schemaVersion, featureFlags: state.platform?.featureFlags ?? {} });
+    return json(res, 200, {
+      schemaVersion: state.platform?.schemaVersion,
+      featureFlags: state.platform?.featureFlags ?? {}
+    });
   }
   return notFound(res);
 }
