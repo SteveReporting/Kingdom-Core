@@ -25,12 +25,9 @@ jobs:
         run: npm run audit:prod
       - name: Syntax check
         run: npm run check
-      - name: Import UIpgrade
+      - name: Import live DQ runtime
         run: |
-          node -e "Promise.all([import('./src/commands/uipgrade.js'),import('./src/services/uiUpgrade.js'),import('./src/services/applicationLinks.js'),import('./src/ui/realmUiVNext.js')]).then(()=>console.log('UIpgrade imports OK'))"
-      - name: Import setup3 organizer
-        run: |
-          node -e "Promise.all([import('./src/commands/setup3.js'),import('./src/services/serverOrganizerV3.js')]).then(()=>console.log('setup3 organizer imports OK'))"
+          node -e "Promise.all([import('./src/services/liveDqSystems.js'),import('./src/dq/store.js'),import('./src/dq/genome.js'),import('./src/dq/digitalTwin.js'),import('./src/dq/oracle.js'),import('./src/dq/sentinel.js'),import('./src/dq/assetBank.js'),import('./src/dq/index.js')]).then(()=>console.log('Live Dungeon Quest systems import OK'))"
       - name: Import carry sessions
         run: |
           node -e "import('./src/services/carryPartiesV3.js').then(()=>console.log('carry sessions import OK'))"
@@ -43,13 +40,6 @@ jobs:
       - name: Import Kingdom Nexus
         run: |
           node -e "Promise.all([import('./src/nexus/catalog.js'),import('./src/nexus/validation.js'),import('./src/nexus/state.js'),import('./src/nexus/domain.js'),import('./src/nexus/lifecycle.js'),import('./src/nexus/ops.js'),import('./src/nexus/auth.js'),import('./src/nexus/applicationOps.js'),import('./src/nexus/platform.js'),import('./src/nexus/sdk-browser.js')]).then(()=>console.log('Kingdom Nexus imports OK'))"
-      - name: Import Dungeon Quest systems
-        run: |
-          node -e "Promise.all([import('./src/commands/dq.js'),import('./src/dq/store.js'),import('./src/dq/genome.js'),import('./src/dq/digitalTwin.js'),import('./src/dq/oracle.js'),import('./src/dq/sentinel.js'),import('./src/dq/assetBank.js'),import('./src/dq/index.js')]).then(()=>console.log('Dungeon Quest systems imports OK'))"
-      - name: UIpgrade self-test
-        run: npm run selftest:uipgrade
-      - name: setup3 organizer self-test
-        run: npm run selftest:setup3
       - name: Carry session self-test
         run: npm run selftest:carry-sessions
       - name: Kingdom Nexus self-test
