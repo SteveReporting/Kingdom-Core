@@ -274,11 +274,79 @@ export async function restoreVaultBackup(guildId, input = {}) {
   };
 }
 
+function summarizeGenomeEvidence(genome, limit = 3) {
+  return genome.slice(0, limit).map((entity) => {
+    const facts = entity?.data && typeof entity.data === 'object'
+      ? Object.entries(entity.data).slice(0, 3).map(([key, value]) => `${key}: ${String(value).slice(0, 80)}`).join(', ')
+      : '';
+    return `**${entity?.name ?? 'Unknown'}**${entity?.kind ? ` (${entity.kind})` : ''}${facts ? ` — ${facts}` : ''}`;
+  }).join('\n');
+}
+
+function instantKingdomAnswer(prompt, context = {}) {
+  const q = String(prompt ?? '').trim().toLowerCase();
+  const genome = Array.isArray(context?.genome) ? context.genome : [];
+  const snapshot = context?.dqSystems ?? {};
+
+  if (!q) return null;
+
+  if (/\b(best|fastest|good|efficient|how).*(progress|progression|level|advance|stronger)|\b(progress|progression).*(best|fastest|how|way)\b/.test(q)) {
+    return [
+      '**Best general Dungeon Quest progression:** farm the highest dungeon/difficulty you can clear **consistently and quickly**, use the stronger gear/spells you get, upgrade your build, then move up when the next content is reliably clearable.',
+      'Don\'t force higher content if every run is slow or fails — reliable clears usually progress you faster.',
+      '',
+      'Tell me your **current dungeon/level, class or build, gear/POT and goal** and I can make the route specific.'
+    ].join('\n');
+  }
+
+  if (/\bwhat.*genome|genome.*(what|know|does|status)|how.*genome\b/.test(q)) {
+    const counts = snapshot?.genome;
+    return counts
+      ? `🧬 **Genome** is Kingdom Core's evidence layer. Right now it has **${counts.entities ?? 0} entities, ${counts.runs ?? 0} recorded runs and ${counts.strategies ?? 0} strategies**. It learns from real recorded DQ runs and uses that evidence for Twin, Oracle and AI answers.`
+      : '🧬 **Genome** is Kingdom Core\'s Dungeon Quest evidence layer. It stores real run observations, entities and strategies so Twin, Oracle and Kingdom AI can answer from evidence instead of guessing.';
+  }
+
+  if (/\b(best|which|what).*(dungeon|difficulty)|\b(dungeon|difficulty).*(should|best|next)\b/.test(q)) {
+    if (genome.length) return `Based on the closest Genome evidence:\n${summarizeGenomeEvidence(genome)}\n\nFor an exact recommendation, give me your **current level/dungeon, build and POT**.`;
+    return 'Give me your **current level/dungeon, class or build, and POT/gear**. Without that, I can\'t reliably tell you which Dungeon Quest dungeon or difficulty is best next.';
+  }
+
+  if (/\b(build|gear|weapon|armor|spell|pot|potential)\b/.test(q)) {
+    if (genome.length) return `Closest Genome evidence for that:\n${summarizeGenomeEvidence(genome)}\n\nIf you give me your current build/gear and goal, I can narrow it down.`;
+    return 'I need your **class/build, current gear/POT, dungeon and goal** to give a grounded recommendation rather than inventing a meta answer.';
+  }
+
+  if (/\b(oracle)\b/.test(q)) {
+    return '🔮 **Oracle** compares Dungeon Quest strategies/scenarios and ranks them for progression, speed, gold, XP or safety using Genome/Twin evidence.';
+  }
+
+  if (/\b(digital twin|twin)\b/.test(q)) {
+    return '🪞 **Digital Twin** simulates Dungeon Quest runs from recorded Genome evidence to estimate clear time, clear rate and confidence before you commit to a strategy.';
+  }
+
+  if (/\b(sentinel)\b/.test(q)) {
+    return '👁️ **Sentinel** watches recorded Dungeon Quest evidence for unusual changes or anomalies, such as run metrics moving sharply away from their normal baseline.';
+  }
+
+  if (genome.length) {
+    return `🧬 Closest Genome evidence:\n${summarizeGenomeEvidence(genome)}\n\nIf you want a more exact answer, give me the relevant dungeon/build/POT details.`;
+  }
+
+  return null;
+}
+
 export async function callLocalKingdomAi(prompt, context = {}) {
+  const instant = instantKingdomAnswer(prompt, context);
+  if (instant) return instant;
+
   const baseUrl = String(process.env.KINGDOM_AI_LOCAL_URL ?? '').trim().replace(/\/$/, '');
-  if (!baseUrl) throw new Error('Kingdom AI local fallback is disabled: KINGDOM_AI_LOCAL_URL is not configured.');
+  if (!baseUrl) {
+    return 'I don\'t have enough grounded Genome evidence for that yet. Give me your current Dungeon Quest dungeon/level, build, gear/POT and goal and I can answer without guessing.';
+  }
+
   const model = String(process.env.KINGDOM_AI_LOCAL_MODEL ?? 'sentient-local');
-  const timeoutMs = Math.max(5_000, Number(process.env.KINGDOM_AI_TIMEOUT_MS ?? 60_000));
+  const configuredTimeout = Number(process.env.KINGDOM_AI_TIMEOUT_MS ?? 2500);
+  const timeoutMs = Math.max(750, Math.min(2500, Number.isFinite(configuredTimeout) ? configuredTimeout : 2500));
   const genomeMatches = Array.isArray(context?.genome) ? context.genome.length : 0;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -292,26 +360,17 @@ export async function callLocalKingdomAi(prompt, context = {}) {
         think: false,
         keep_alive: '30m',
         options: {
-          num_predict: 300,
-          temperature: 0.15
+          num_predict: 80,
+          temperature: 0.1
         },
         messages: [
           {
             role: 'system',
-            content: [
-              'You are Kingdom AI, the Dungeon Quest intelligence assistant for Kingdom Carries.',
-              'Dungeon Quest ALWAYS means the Roblox game Dungeon Quest, not a generic fantasy RPG or quest system.',
-              'Stable baseline: progression in Dungeon Quest is primarily about clearing dungeons, obtaining stronger gear/spells, upgrading your build, and moving to harder/higher content once you can clear consistently.',
-              'Never invent NPC quests, resource-gathering loops, crafting systems, story quests, skill trees, or other generic RPG mechanics unless the supplied Kingdom context explicitly contains them.',
-              'Use supplied Genome and Kingdom DQ-system context as the source of truth for dungeon-specific, build-specific, strategy-specific, timing, POT, item, drop, price, or current-meta claims.',
-              'If Genome has no matching evidence for a specific factual claim, say that clearly instead of guessing. Ask for the member\'s current dungeon, level, class/build, gear/POT, or goal when that would let you give a useful recommendation.',
-              'For broad progression questions you may use the stable baseline above, but do not fabricate exact dungeon names, thresholds, drop rates, prices, or meta rankings.',
-              'Be concise, practical, and Dungeon Quest-specific. Never claim to have performed an action you did not perform.'
-            ].join(' ')
+            content: 'You are Kingdom AI for the Roblox game Dungeon Quest. Be concise and DQ-specific. Never invent generic RPG mechanics. Use the supplied Genome evidence when present; if evidence is missing, say what player details are needed instead of guessing.'
           },
           {
             role: 'user',
-            content: `${String(prompt).slice(0, 6000)}\n\nGrounding status: ${genomeMatches} matching Genome record(s).\nKingdom context:\n${JSON.stringify(context).slice(0, 12000)}`
+            content: `${String(prompt).slice(0, 1200)}\nGenome matches: ${genomeMatches}\nContext: ${JSON.stringify(context).slice(0, 3500)}`
           }
         ]
       }),
@@ -319,13 +378,15 @@ export async function callLocalKingdomAi(prompt, context = {}) {
     });
     if (!response.ok) throw new Error(`Local AI returned HTTP ${response.status}`);
     const data = await response.json();
-    return String(data?.message?.content ?? data?.response ?? '').trim();
+    const answer = String(data?.message?.content ?? data?.response ?? '').trim();
+    if (answer) return answer;
   } catch (error) {
-    if (error?.name === 'AbortError') throw new Error(`Kingdom AI timed out after ${Math.round(timeoutMs / 1000)} seconds.`);
-    throw error;
+    if (error?.name !== 'AbortError') console.warn('[Kingdom AI] local model fast-path failed:', error?.message ?? error);
   } finally {
     clearTimeout(timer);
   }
+
+  return 'I don\'t have enough grounded Genome evidence to answer that instantly yet. Give me your **current dungeon/level, build, gear/POT and goal** and I\'ll narrow it down without guessing.';
 }
 
 export async function runNexusMaintenance(guild) {
