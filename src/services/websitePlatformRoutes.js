@@ -22,6 +22,11 @@ function decoded(value) {
 
 export async function handleWebsitePlatformRoute(guild, req, url, { userId, readJsonBody }) {
   const pathname = url.pathname;
+
+  // /api/carries/request belongs to the original website carry-request bridge in
+  // platformApiV4. Do not interpret the literal word "request" as a carry ID.
+  if (pathname === '/api/carries/request') return null;
+
   const relevant = pathname.startsWith('/api/tickets')
     || pathname === '/api/carries/joinable'
     || /^\/api\/carries\/[^/]+(?:\/(?:join|leave|messages))?$/.test(pathname);
@@ -53,7 +58,7 @@ export async function handleWebsitePlatformRoute(guild, req, url, { userId, read
         return route(201, { message: await sendWebsiteConversationMessage(guild, userId, 'ticket', id, body) });
       }
       if (action === 'close' && req.method === 'POST') return route(200, { ok: true, ticket: await closeWebsiteSupportTicket(guild, userId, id) });
-      return route(405, { error: 'method_not_allowed' });
+      return route(405, { error: 'method_not_allowed', message: 'That ticket action does not support this request method.' });
     }
 
     if (pathname === '/api/carries/joinable' && req.method === 'GET') {
@@ -77,7 +82,7 @@ export async function handleWebsitePlatformRoute(guild, req, url, { userId, read
         const body = await readJsonBody(req);
         return route(201, { message: await sendWebsiteConversationMessage(guild, userId, 'carry', id, body) });
       }
-      return route(405, { error: 'method_not_allowed' });
+      return route(405, { error: 'method_not_allowed', message: 'That carry action does not support this request method.' });
     }
 
     return null;
