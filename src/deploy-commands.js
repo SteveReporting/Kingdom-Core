@@ -1,7 +1,6 @@
 import 'dotenv/config';
 import { REST, Routes } from 'discord.js';
-import { data as uiUpgradeCommand } from './commands/uipgrade.js';
-import { data as setup3Command } from './commands/setup3.js';
+import { data as setup1Command } from './commands/setup1.js';
 import { data as modCommand } from './commands/mod.js';
 import { data as valueCommand } from './commands/value.js';
 import { data as dqCommand } from './commands/dq.js';
@@ -16,8 +15,7 @@ if (!token) {
 }
 
 const commands = [
-  uiUpgradeCommand.toJSON(),
-  setup3Command.toJSON(),
+  setup1Command.toJSON(),
   modCommand.toJSON(),
   valueCommand.toJSON(),
   dqCommand.toJSON()
