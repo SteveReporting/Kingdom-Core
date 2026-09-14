@@ -3,7 +3,6 @@ import { REST, Routes } from 'discord.js';
 import { data as setup1Command } from './commands/setup1.js';
 import { data as modCommand } from './commands/mod.js';
 import { data as valueCommand } from './commands/value.js';
-import { data as dqCommand } from './commands/dq.js';
 
 const token = process.env.TOKEN;
 const clientId = process.env.CLIENT_ID || '1546171480952283166';
@@ -17,8 +16,7 @@ if (!token) {
 const commands = [
   setup1Command.toJSON(),
   modCommand.toJSON(),
-  valueCommand.toJSON(),
-  dqCommand.toJSON()
+  valueCommand.toJSON()
 ];
 const rest = new REST({ version: '10' }).setToken(token);
 
