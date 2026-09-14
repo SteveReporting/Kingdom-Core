@@ -7,6 +7,7 @@ import {
   MessageFlags,
   Partials
 } from 'discord.js';
+import { execute as executeSetup1 } from './commands/setup1.js';
 import { execute as executeUiUpgrade } from './commands/uipgrade.js';
 import { execute as executeSetup3 } from './commands/setup3.js';
 import { execute as executeMod } from './commands/mod.js';
@@ -176,6 +177,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
     }
 
     if (interaction.isChatInputCommand()) {
+      if (interaction.commandName === 'setup1') { await executeSetup1(interaction); return; }
       if (interaction.commandName === 'uipgrade') { await executeUiUpgrade(interaction); return; }
       if (interaction.commandName === 'setup3') { await executeSetup3(interaction); return; }
       if (interaction.commandName === 'mod') { await executeMod(interaction); return; }
