@@ -1,6 +1,7 @@
 import { Message } from 'discord.js';
 import { installLiveKingdomPresence, CHANNEL_PERSONA_HANDLED } from './liveKingdomPresenceV2.js';
 import { installLiveDQSystems } from './liveDqSystems.js';
+import { installKingdomChatOutputNormalizer } from './kingdomChatOutputNormalizer.js';
 
 const READY_STATUS = 0;
 const ORIGINAL_MESSAGE_REPLY = Symbol.for('kingdom-core.original-message-reply');
@@ -48,6 +49,7 @@ function describeClose(event) {
 
 export function installGatewayHealth(client, options = {}) {
   installSafeMessageReplies();
+  installKingdomChatOutputNormalizer(client);
 
   // Install dedicated live personalities first. Their MessageCreate listener marks
   // messages synchronously so general/global assistants do not double-answer them.
