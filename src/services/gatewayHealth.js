@@ -1,5 +1,5 @@
 import { Message } from 'discord.js';
-import { installLiveKingdomPresence, CHANNEL_PERSONA_HANDLED } from './liveKingdomPresence.js';
+import { installLiveKingdomPresence, CHANNEL_PERSONA_HANDLED } from './liveKingdomPresenceV2.js';
 import { installLiveDQSystems } from './liveDqSystems.js';
 
 const READY_STATUS = 0;
