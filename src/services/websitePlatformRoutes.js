@@ -1,3 +1,4 @@
+import { readGuildState } from '../storage/store.js';
 import {
   closeWebsiteSupportTicket,
   createWebsiteSupportTicket,
@@ -25,6 +26,54 @@ function route(status, body) {
 
 function decoded(value) {
   try { return decodeURIComponent(value); } catch { return value; }
+}
+
+function robloxFor(state, discordId) {
+  const row = state.identities?.[discordId]?.website?.roblox;
+  return row?.username ? String(row.username) : null;
+}
+
+async function memberRow(guild, state, discordId, ticket) {
+  const member = await guild.members.fetch(discordId).catch(() => null);
+  return {
+    discordId,
+    displayName: member?.displayName ?? member?.user?.username ?? (discordId === ticket.userId ? ticket.displayName ?? ticket.username : 'Party member'),
+    avatarUrl: member?.displayAvatarURL?.({ extension: 'png', size: 128 }) ?? null,
+    robloxUsername: robloxFor(state, discordId) ?? (discordId === ticket.userId ? ticket.robloxUsername ?? null : null),
+    ready: Boolean(ticket.ready?.[discordId]),
+    leader: ticket.leaderId === discordId || ticket.userId === discordId
+  };
+}
+
+async function enrichCarryMission(guild, userId, id, session) {
+  const state = await readGuildState(guild.id);
+  const ticket = state.carryTickets?.[id];
+  if (!ticket) return session;
+  const memberIds = [...new Set((Array.isArray(ticket.members) ? ticket.members : [ticket.userId]).filter(Boolean))];
+  const members = await Promise.all(memberIds.map((memberId) => memberRow(guild, state, memberId, ticket)));
+  const requester = ticket.userId
+    ? await memberRow(guild, state, ticket.userId, ticket)
+    : null;
+  const carrier = ticket.carrierId
+    ? await guild.members.fetch(ticket.carrierId).catch(() => null)
+    : null;
+  return {
+    ...session,
+    memberCount: memberIds.length,
+    members,
+    requester,
+    requesterId: ticket.userId ?? null,
+    requesterDisplayName: requester?.displayName ?? session.requesterDisplayName ?? null,
+    requesterAvatarUrl: requester?.avatarUrl ?? null,
+    robloxUsername: ticket.robloxUsername ?? requester?.robloxUsername ?? session.robloxUsername ?? null,
+    carrierName: carrier?.displayName ?? carrier?.user?.username ?? null,
+    carrierAvatarUrl: carrier?.displayAvatarURL?.({ extension: 'png', size: 128 }) ?? null,
+    currentLevel: ticket.level ?? null,
+    region: ticket.region ?? null,
+    partyRequirements: ticket.partyRequirements ?? ticket.requirement ?? null,
+    notes: ticket.notes ?? null,
+    viewerIsRequester: ticket.userId === userId
+  };
 }
 
 export async function handleWebsitePlatformRoute(guild, req, url, { userId, readJsonBody }) {
@@ -99,7 +148,10 @@ export async function handleWebsitePlatformRoute(guild, req, url, { userId, read
     if (carryMatch) {
       const id = decoded(carryMatch[1]);
       const action = carryMatch[2] ?? '';
-      if (!action && req.method === 'GET') return route(200, { session: await getUnifiedCarry(guild, userId, id) });
+      if (!action && req.method === 'GET') {
+        const session = await getUnifiedCarry(guild, userId, id);
+        return route(200, { session: await enrichCarryMission(guild, userId, id, session) });
+      }
       if (action === 'join' && req.method === 'POST') return route(200, { ok: true, session: await joinUnifiedCarry(guild, userId, id) });
       if (action === 'leave' && req.method === 'POST') return route(200, await leaveUnifiedCarry(guild, userId, id));
       if (action === 'messages' && req.method === 'GET') {
