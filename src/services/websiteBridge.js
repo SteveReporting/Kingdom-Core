@@ -35,28 +35,84 @@ function cleanString(value, max = 180) {
   return typeof value === 'string' ? value.trim().slice(0, max) : '';
 }
 
+function normalName(value = '') {
+  return String(value).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+function liveRoleId(guild, state, key) {
+  const configured = state.setup?.roles?.[key];
+  if (configured && guild.roles.cache.has(configured)) return configured;
+  const definition = ROLE_BLUEPRINT.find((role) => role.key === key);
+  if (!definition) return null;
+  const exact = guild.roles.cache.find((role) => role.name === definition.name);
+  if (exact) return exact.id;
+  const target = normalName(definition.name);
+  return guild.roles.cache.find((role) => normalName(role.name) === target)?.id ?? null;
+}
+
+async function resolveCarryParent(guild, state) {
+  await guild.channels.fetch().catch(() => null);
+  const configuredIds = [
+    state.setup?.categories?.carryTickets,
+    state.setup?.categories?.carries,
+    state.setup?.categories?.support
+  ].filter(Boolean);
+  for (const id of configuredIds) {
+    const channel = guild.channels.cache.get(id);
+    if (channel?.type === ChannelType.GuildCategory) return channel;
+  }
+
+  const baseline = state.setup1?.structure?.categories ?? [];
+  const preferredBaseline = [
+    baseline.find((item) => /\bcarr(?:y|ies)\b/i.test(item.name)),
+    baseline.find((item) => /support|ticket|petition/i.test(item.name))
+  ].filter(Boolean);
+  for (const item of preferredBaseline) {
+    const channel = guild.channels.cache.get(item.id);
+    if (channel?.type === ChannelType.GuildCategory) return channel;
+  }
+
+  const categories = [...guild.channels.cache.values()].filter((channel) => channel.type === ChannelType.GuildCategory);
+  return categories.find((channel) => /\bcarr(?:y|ies)\b/i.test(channel.name))
+    ?? categories.find((channel) => /support|ticket|petition/i.test(channel.name))
+    ?? null;
+}
+
 function carryTicketOverwrites(guild, state, userId) {
-  const roleIds = state.setup?.roles ?? {};
-  const allowed = new Set([...STAFF_KEYS, ...CARRIER_KEYS].map((key) => roleIds[key]).filter(Boolean));
+  const allowedKeys = [...STAFF_KEYS, ...CARRIER_KEYS];
+  const allowed = new Set(allowedKeys.map((key) => liveRoleId(guild, state, key)).filter(Boolean));
   const rows = [{
     id: guild.roles.everyone.id,
     allow: [PermissionFlagsBits.ReadMessageHistory],
     deny: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]
   }];
 
-  for (const definition of ROLE_BLUEPRINT) {
-    const id = roleIds[definition.key];
-    if (!id) continue;
-    rows.push(allowed.has(id)
-      ? {
-        id,
-        allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory]
-      }
-      : {
-        id,
-        allow: [PermissionFlagsBits.ReadMessageHistory],
-        deny: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]
-      });
+  for (const roleId of allowed) {
+    rows.push({
+      id: roleId,
+      allow: [
+        PermissionFlagsBits.ViewChannel,
+        PermissionFlagsBits.SendMessages,
+        PermissionFlagsBits.ReadMessageHistory,
+        PermissionFlagsBits.EmbedLinks,
+        PermissionFlagsBits.AttachFiles
+      ]
+    });
+  }
+
+  if (guild.members.me?.id) {
+    rows.push({
+      id: guild.members.me.id,
+      allow: [
+        PermissionFlagsBits.ViewChannel,
+        PermissionFlagsBits.SendMessages,
+        PermissionFlagsBits.ReadMessageHistory,
+        PermissionFlagsBits.ManageMessages,
+        PermissionFlagsBits.ManageWebhooks,
+        PermissionFlagsBits.EmbedLinks,
+        PermissionFlagsBits.AttachFiles
+      ]
+    });
   }
 
   rows.push({
@@ -152,9 +208,13 @@ export async function createWebsiteCarryTicket(guild, input = {}) {
     throw apiError('active_ticket_exists', `You already have an active carry mission (${existing.id}).`, 409);
   }
 
-  const parent = guild.channels.cache.get(state.setup?.categories?.carryTickets);
-  if (!parent || parent.type !== ChannelType.GuildCategory) {
-    throw apiError('carry_system_not_configured', 'The Discord carry-ticket category is unavailable. Run /setup2 first.', 503);
+  const parent = await resolveCarryParent(guild, state);
+  if (!parent) {
+    throw apiError(
+      'carry_category_unavailable',
+      'Kingdom Core could not find the live CARRIES or SUPPORT category. Run /setup1 once so the current server structure is captured.',
+      503
+    );
   }
 
   const short = Date.now().toString(36).slice(-5);
@@ -175,6 +235,7 @@ export async function createWebsiteCarryTicket(guild, input = {}) {
     username: member.user.username,
     displayName: member.displayName,
     channelId: channel.id,
+    parentCategoryId: parent.id,
     dungeon,
     difficulty,
     mode,
@@ -199,7 +260,9 @@ export async function createWebsiteCarryTicket(guild, input = {}) {
   ticket.headerMessageId = header.id;
   if (!header.pinned) await header.pin('Kingdom Core website carry mission controls').catch(() => null);
 
-  const control = guild.channels.cache.get(state.setup?.channels?.carryControl);
+  const control = guild.channels.cache.get(state.setup?.channels?.carryControl)
+    ?? guild.channels.cache.get(state.setup?.channels?.carryBoard)
+    ?? guild.channels.cache.find((candidate) => candidate.isTextBased?.() && /carry[-・ ]?(control|board)/i.test(candidate.name));
   if (control?.isTextBased()) {
     const controlMsg = await control.send({
       embeds: [ticketEmbed(ticket)],
