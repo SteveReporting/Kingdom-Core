@@ -1,6 +1,39 @@
+import { Message } from 'discord.js';
 import { installLiveDQSystems } from './liveDqSystems.js';
 
 const READY_STATUS = 0;
+const ORIGINAL_MESSAGE_REPLY = Symbol.for('kingdom-core.original-message-reply');
+
+function installSafeMessageReplies() {
+  if (Message.prototype[ORIGINAL_MESSAGE_REPLY]) return;
+
+  const originalReply = Message.prototype.reply;
+  Object.defineProperty(Message.prototype, ORIGINAL_MESSAGE_REPLY, {
+    value: originalReply,
+    configurable: false,
+    enumerable: false,
+    writable: false
+  });
+
+  Message.prototype.reply = async function kingdomSafeReply(options) {
+    try {
+      return await originalReply.call(this, options);
+    } catch (error) {
+      const unknownReference =
+        error?.code === 10008 ||
+        (error?.code === 50035 && (
+          error?.rawError?.errors?.message_reference ||
+          String(error?.message ?? '').includes('MESSAGE_REFERENCE_UNKNOWN_MESSAGE') ||
+          String(error?.message ?? '').includes('Unknown message')
+        ));
+
+      if (!unknownReference || !this.channel?.isTextBased?.()) throw error;
+
+      console.warn(`[Discord] Reply target ${this.id} disappeared; sending response normally in #${this.channel?.name ?? this.channelId}.`);
+      return this.channel.send(options);
+    }
+  };
+}
 
 function describeClose(event) {
   if (!event) return 'unknown close';
@@ -8,6 +41,7 @@ function describeClose(event) {
 }
 
 export function installGatewayHealth(client, options = {}) {
+  installSafeMessageReplies();
   installLiveDQSystems(client);
 
   const checkEveryMs = Number(options.checkEveryMs ?? 30_000);
