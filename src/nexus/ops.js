@@ -279,6 +279,7 @@ export async function callLocalKingdomAi(prompt, context = {}) {
   if (!baseUrl) throw new Error('Kingdom AI local fallback is disabled: KINGDOM_AI_LOCAL_URL is not configured.');
   const model = String(process.env.KINGDOM_AI_LOCAL_MODEL ?? 'sentient-local');
   const timeoutMs = Math.max(5_000, Number(process.env.KINGDOM_AI_TIMEOUT_MS ?? 60_000));
+  const genomeMatches = Array.isArray(context?.genome) ? context.genome.length : 0;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -292,11 +293,26 @@ export async function callLocalKingdomAi(prompt, context = {}) {
         keep_alive: '30m',
         options: {
           num_predict: 300,
-          temperature: 0.4
+          temperature: 0.15
         },
         messages: [
-          { role: 'system', content: 'You are Kingdom AI. Give useful, concise Dungeon Quest answers. Answer only from the supplied Kingdom context when context is relevant. Never claim to have performed actions you did not perform.' },
-          { role: 'user', content: `${String(prompt).slice(0, 6000)}\n\nContext:\n${JSON.stringify(context).slice(0, 12000)}` }
+          {
+            role: 'system',
+            content: [
+              'You are Kingdom AI, the Dungeon Quest intelligence assistant for Kingdom Carries.',
+              'Dungeon Quest ALWAYS means the Roblox game Dungeon Quest, not a generic fantasy RPG or quest system.',
+              'Stable baseline: progression in Dungeon Quest is primarily about clearing dungeons, obtaining stronger gear/spells, upgrading your build, and moving to harder/higher content once you can clear consistently.',
+              'Never invent NPC quests, resource-gathering loops, crafting systems, story quests, skill trees, or other generic RPG mechanics unless the supplied Kingdom context explicitly contains them.',
+              'Use supplied Genome and Kingdom DQ-system context as the source of truth for dungeon-specific, build-specific, strategy-specific, timing, POT, item, drop, price, or current-meta claims.',
+              'If Genome has no matching evidence for a specific factual claim, say that clearly instead of guessing. Ask for the member\'s current dungeon, level, class/build, gear/POT, or goal when that would let you give a useful recommendation.',
+              'For broad progression questions you may use the stable baseline above, but do not fabricate exact dungeon names, thresholds, drop rates, prices, or meta rankings.',
+              'Be concise, practical, and Dungeon Quest-specific. Never claim to have performed an action you did not perform.'
+            ].join(' ')
+          },
+          {
+            role: 'user',
+            content: `${String(prompt).slice(0, 6000)}\n\nGrounding status: ${genomeMatches} matching Genome record(s).\nKingdom context:\n${JSON.stringify(context).slice(0, 12000)}`
+          }
         ]
       }),
       signal: controller.signal
