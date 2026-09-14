@@ -1,5 +1,5 @@
 import { Message } from 'discord.js';
-import { installLiveChannelPersonalities, CHANNEL_PERSONA_HANDLED } from './liveChannelPersonalities.js';
+import { installLiveKingdomPresence, CHANNEL_PERSONA_HANDLED } from './liveKingdomPresence.js';
 import { installLiveDQSystems } from './liveDqSystems.js';
 
 const READY_STATUS = 0;
@@ -49,9 +49,9 @@ function describeClose(event) {
 export function installGatewayHealth(client, options = {}) {
   installSafeMessageReplies();
 
-  // Install dedicated channel routers first. Their MessageCreate listener marks the
-  // message synchronously so general/global assistants do not double-answer it.
-  installLiveChannelPersonalities(client);
+  // Install dedicated live personalities first. Their MessageCreate listener marks
+  // messages synchronously so general/global assistants do not double-answer them.
+  installLiveKingdomPresence(client);
   installLiveDQSystems(client);
 
   const checkEveryMs = Number(options.checkEveryMs ?? 30_000);
