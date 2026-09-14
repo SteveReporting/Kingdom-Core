@@ -1,4 +1,5 @@
 import { Message } from 'discord.js';
+import { installLiveChannelPersonalities, CHANNEL_PERSONA_HANDLED } from './liveChannelPersonalities.js';
 import { installLiveDQSystems } from './liveDqSystems.js';
 
 const READY_STATUS = 0;
@@ -16,6 +17,11 @@ function installSafeMessageReplies() {
   });
 
   Message.prototype.reply = async function kingdomSafeReply(options) {
+    // Dedicated channel personalities own their messages. This prevents older/global
+    // assistants from producing a second reply in the same channel after the persona
+    // has already handled it.
+    if (this[CHANNEL_PERSONA_HANDLED]) return null;
+
     try {
       return await originalReply.call(this, options);
     } catch (error) {
@@ -42,6 +48,10 @@ function describeClose(event) {
 
 export function installGatewayHealth(client, options = {}) {
   installSafeMessageReplies();
+
+  // Install dedicated channel routers first. Their MessageCreate listener marks the
+  // message synchronously so general/global assistants do not double-answer it.
+  installLiveChannelPersonalities(client);
   installLiveDQSystems(client);
 
   const checkEveryMs = Number(options.checkEveryMs ?? 30_000);
