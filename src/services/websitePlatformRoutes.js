@@ -14,6 +14,10 @@ import {
   listUnifiedJoinableCarries,
   normaliseUnifiedCarryError
 } from './unifiedCarryBridge.js';
+import {
+  getUnifiedCarryEta,
+  getUnifiedCarryTimeline
+} from './unifiedCarryEcosystem.js';
 
 function route(status, body) {
   return { handled: true, status, body };
@@ -25,7 +29,21 @@ function decoded(value) {
 
 export async function handleWebsitePlatformRoute(guild, req, url, { userId, readJsonBody }) {
   const pathname = url.pathname;
-  const relevant = pathname.startsWith('/api/tickets')
+
+  const etaMatch = pathname.match(/^\/api\/ecosystem\/carries\/([^/]+)\/eta$/);
+  if (etaMatch) {
+    if (req.method !== 'GET') return route(405, { error: 'method_not_allowed', message: 'That ETA action only supports GET.' });
+    try {
+      return route(200, await getUnifiedCarryEta(guild, decoded(etaMatch[1])));
+    } catch (error) {
+      const normalised = normaliseUnifiedCarryError(error);
+      return route(normalised.status, normalised.body);
+    }
+  }
+
+  const timelineMatch = pathname.match(/^\/api\/ecosystem\/carries\/([^/]+)\/timeline$/);
+  const relevant = Boolean(timelineMatch)
+    || pathname.startsWith('/api/tickets')
     || pathname === '/api/carries/request'
     || pathname === '/api/carries/joinable'
     || /^\/api\/carries\/[^/]+(?:\/(?:join|leave|messages))?$/.test(pathname);
@@ -33,6 +51,11 @@ export async function handleWebsitePlatformRoute(guild, req, url, { userId, read
   if (!userId) return route(401, { error: 'missing_user', message: 'Sign in with Discord first.' });
 
   try {
+    if (timelineMatch) {
+      if (req.method !== 'GET') return route(405, { error: 'method_not_allowed', message: 'That timeline action only supports GET.' });
+      return route(200, await getUnifiedCarryTimeline(guild, userId, decoded(timelineMatch[1])));
+    }
+
     if (pathname === '/api/tickets/mine' && req.method === 'GET') {
       return route(200, { tickets: await listWebsiteSupportTickets(guild, userId) });
     }
